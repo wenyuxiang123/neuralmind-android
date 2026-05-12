@@ -41,7 +41,10 @@ android {
                 "proguard-rules.pro"
             )
             
-            signingConfig = signingConfigs.getByName("release")
+            // Only apply signing config if it exists
+            signingConfigs.findByName("release")?.let {
+                signingConfig = it
+            }
         }
         debug {
             isMinifyEnabled = false
@@ -50,10 +53,13 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = System.getenv("KEYSTORE_FILE")?.let { file(it) }
-            storePassword = System.getenv("KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("KEY_ALIAS")
-            keyPassword = System.getenv("KEY_PASSWORD")
+            val keystoreFile = System.getenv("KEYSTORE_FILE")?.let { file(it) }
+            if (keystoreFile != null && keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
         }
     }
 

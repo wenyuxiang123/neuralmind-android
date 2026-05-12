@@ -22,17 +22,15 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
 
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace
-
-    - name: Build Release APK
-      run: ./gradlew assembleRelease --stacktrace
+    - name: Build with Gradle
+      run: gradle assembleDebug assembleRelease --stacktrace
 
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: app-debug
         path: app/build/outputs/apk/debug/*.apk
@@ -40,13 +38,17 @@ jobs:
 
     - name: Upload Release APK
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: app-release
         path: app/build/outputs/apk/release/*.apk
         retention-days: 30
 
-    - name: Get APK info
+    - name: List build artifacts
       if: always()
       run: |
-        ls -la app/build/outputs/apk/debug/
-        ls -la app/build/outputs/apk/release/
+        echo "--- Debug APK directory ---"
+        ls -la app/build/outputs/apk/debug/ || echo "No debug APK found"
+        echo ""
+        echo "--- Release APK directory ---"
+        ls -la app/build/outputs/apk/release/ || echo "No release APK found"
