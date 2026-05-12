@@ -6,22 +6,29 @@ import com.neuralmind.data.local.db.entity.ModelEntity
 import com.neuralmind.domain.model.AIModel
 import com.neuralmind.domain.model.ModelCategory
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 
+@Singleton
 class ModelRepository @Inject constructor(
     private val modelDao: ModelDao,
     private val context: Context
 ) {
     private val client = OkHttpClient()
     private val modelsDir = File(context.filesDir, "models")
+    
+    private val _currentModel = MutableStateFlow<AIModel?>(null)
+    val currentModel: StateFlow<AIModel?> = _currentModel
 
     init {
         if (!modelsDir.exists()) {
@@ -51,12 +58,19 @@ class ModelRepository @Inject constructor(
         return modelDao.getModelById(id)?.toDomain()
     }
 
+    suspend fun switchModel(modelId: String) {
+        val model = getModelById(modelId)
+        _currentModel.value = model
+    }
+
     suspend fun insertDefaultModels() {
+        if (modelDao.getModelById("llama3.2-1b") != null) return
+
         val defaultModels = listOf(
             ModelEntity(
                 id = "llama3.2-1b",
                 name = "LLaMA 3.2 1B",
-                description = "适合手机的高效模型",
+                description = "适合手机的高效模型，轻量快速",
                 size = 1_300_000_000,
                 parameters = 1,
                 quantization = "Q4_K_M",
@@ -66,6 +80,22 @@ class ModelRepository @Inject constructor(
                 minRam = 1024,
                 minStorage = 2048,
                 recommendedRam = 2048,
+                supportsGpu = true,
+                supportsNnapi = true
+            ),
+            ModelEntity(
+                id = "llama3.2-3b",
+                name = "LLaMA 3.2 3B",
+                description = "性能与速度平衡的模型",
+                size = 3_100_000_000,
+                parameters = 3,
+                quantization = "Q4_K_M",
+                category = ModelCategory.MOBILE.name,
+                downloadUrl = "https://huggingface.co/quantities/llama3.2-3b-q4_k_m/resolve/main/llama3.2-3b-q4_k_m.gguf",
+                checksum = "",
+                minRam = 2048,
+                minStorage = 4096,
+                recommendedRam = 4096,
                 supportsGpu = true,
                 supportsNnapi = true
             ),
@@ -104,7 +134,7 @@ class ModelRepository @Inject constructor(
             ModelEntity(
                 id = "qwen2.5-0.5b",
                 name = "Qwen2.5 0.5B",
-                description = "阿里高效小模型",
+                description = "阿里高效小模型，极快速度",
                 size = 700_000_000,
                 parameters = 1,
                 quantization = "Q4_K_M",
@@ -115,6 +145,86 @@ class ModelRepository @Inject constructor(
                 minStorage = 1024,
                 recommendedRam = 1536,
                 supportsGpu = true,
+                supportsNnapi = true
+            ),
+            ModelEntity(
+                id = "mistral-7b",
+                name = "Mistral 7B",
+                description = "高质量通用模型",
+                size = 7_000_000_000,
+                parameters = 7,
+                quantization = "Q4_K_M",
+                category = ModelCategory.TEXT.name,
+                downloadUrl = "https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3-q4_k_m/resolve/main/mistral-7b-instruct-v0.3-q4_k_m.gguf",
+                checksum = "",
+                minRam = 4096,
+                minStorage = 8192,
+                recommendedRam = 6144,
+                supportsGpu = true,
+                supportsNnapi = false
+            ),
+            ModelEntity(
+                id = "llama3.1-8b",
+                name = "LLaMA 3.1 8B",
+                description = "最新的 Meta 大模型",
+                size = 8_200_000_000,
+                parameters = 8,
+                quantization = "Q4_K_M",
+                category = ModelCategory.TEXT.name,
+                downloadUrl = "https://huggingface.co/quantities/llama3.1-8b-instruct-q4_k_m/resolve/main/llama3.1-8b-instruct-q4_k_m.gguf",
+                checksum = "",
+                minRam = 5120,
+                minStorage = 10240,
+                recommendedRam = 8192,
+                supportsGpu = true,
+                supportsNnapi = false
+            ),
+            ModelEntity(
+                id = "codellama-7b",
+                name = "CodeLLaMA 7B",
+                description = "专业代码生成模型",
+                size = 7_100_000_000,
+                parameters = 7,
+                quantization = "Q4_K_M",
+                category = ModelCategory.CODE.name,
+                downloadUrl = "https://huggingface.co/codellama/CodeLlama-7B-Instruct-q4_k_m/resolve/main/codellama-7b-instruct-q4_k_m.gguf",
+                checksum = "",
+                minRam = 4096,
+                minStorage = 8192,
+                recommendedRam = 6144,
+                supportsGpu = true,
+                supportsNnapi = false
+            ),
+            ModelEntity(
+                id = "llava-7b",
+                name = "LLaVA 7B",
+                description = "视觉语言多模态模型",
+                size = 7_300_000_000,
+                parameters = 7,
+                quantization = "Q4_K_M",
+                category = ModelCategory.VISION.name,
+                downloadUrl = "https://huggingface.co/liuhaotian/LLaVA-1.6-7B-q4_k_m/resolve/main/llava-1.6-7b-q4_k_m.gguf",
+                checksum = "",
+                minRam = 4096,
+                minStorage = 9216,
+                recommendedRam = 6144,
+                supportsGpu = true,
+                supportsNnapi = false
+            ),
+            ModelEntity(
+                id = "whisper-tiny",
+                name = "Whisper Tiny",
+                description = "语音识别模型",
+                size = 750_000_000,
+                parameters = 1,
+                quantization = "Q4_K_M",
+                category = ModelCategory.AUDIO.name,
+                downloadUrl = "https://huggingface.co/whisper-tiny-q4_k_m/resolve/main/whisper-tiny-q4_k_m.gguf",
+                checksum = "",
+                minRam = 1024,
+                minStorage = 1536,
+                recommendedRam = 2048,
+                supportsGpu = false,
                 supportsNnapi = true
             )
         )
@@ -161,9 +271,22 @@ class ModelRepository @Inject constructor(
 
             modelDao.setInstalled(modelId, true, file.absolutePath)
             modelDao.setDownloading(modelId, false, 1f)
+            
+            if (_currentModel.value == null) {
+                switchModel(modelId)
+            }
         } catch (e: Exception) {
             modelDao.setDownloading(modelId, false, 0f)
             file.delete()
+        }
+    }
+
+    suspend fun toggleDownload(modelId: String) {
+        val model = modelDao.getModelById(modelId) ?: return
+        if (model.isDownloading) {
+            modelDao.setDownloading(modelId, false, 0f)
+        } else {
+            downloadModel(modelId)
         }
     }
 
@@ -173,6 +296,10 @@ class ModelRepository @Inject constructor(
             File(path).delete()
         }
         modelDao.setInstalled(modelId, false)
+        
+        if (_currentModel.value?.id == modelId) {
+            _currentModel.value = null
+        }
     }
 
     fun getModelPath(modelId: String): String? {

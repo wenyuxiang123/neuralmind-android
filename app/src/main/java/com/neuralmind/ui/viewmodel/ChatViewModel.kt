@@ -4,10 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuralmind.data.repository.ChatRepository
 import com.neuralmind.data.repository.ModelRepository
+import com.neuralmind.data.repository.MemoryRepository
 import com.neuralmind.domain.model.AIModel
 import com.neuralmind.domain.model.Conversation
 import com.neuralmind.domain.model.Message
 import com.neuralmind.domain.model.MessageRole
+import com.neuralmind.domain.model.MemoryLayer
+import com.neuralmind.llama.LlamaEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -16,7 +19,9 @@ import javax.inject.Inject
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
-    private val modelRepository: ModelRepository
+    private val modelRepository: ModelRepository,
+    private val memoryRepository: MemoryRepository,
+    private val llamaEngine: LlamaEngine
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -33,6 +38,9 @@ class ChatViewModel @Inject constructor(
 
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> = _messages.asStateFlow()
+
+    private val _streamingMessage = MutableStateFlow<Message?>(null)
+    val streamingMessage: StateFlow<Message?> = _streamingMessage.asStateFlow()
 
     fun createConversation(title: String, model: String, onCreated: (Long) -> Unit) {
         viewModelScope.launch {
@@ -57,24 +65,114 @@ class ChatViewModel @Inject constructor(
         val conversation = _currentConversation.value ?: return
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
+            _uiState.update { it.copy(isLoading = true, isStreaming = false) }
 
-            chatRepository.sendMessage(
+            val userMessageId = chatRepository.sendMessage(
                 conversationId = conversation.id,
                 role = MessageRole.USER,
                 content = content
             )
 
-            _uiState.update { it.copy(isLoading = false) }
+            memoryRepository.activateMemoryFromUserInput(content)
+
+            _uiState.update { it.copy(isLoading = false, isStreaming = true) }
+
+            val contextMessages = _messages.value.takeLast(10)
+            generateAIResponse(conversation, content, contextMessages)
+        }
+    }
+
+    private suspend fun generateAIResponse(
+        conversation: Conversation,
+        userInput: String,
+        contextMessages: List<Message>
+    ) {
+        val modelId = conversation.model
+        val currentTime = System.currentTimeMillis()
+        var tempResponse = ""
+
+        _streamingMessage.value = Message(
+            id = -1,
+            conversationId = conversation.id,
+            role = MessageRole.ASSISTANT,
+            content = "",
+            timestamp = currentTime,
+            model = modelId
+        )
+
+        val modelLoaded = modelRepository.getCurrentModel().value?.let { model ->
+            llamaEngine.loadModel(model.id)
+        } ?: false
+
+        if (modelLoaded) {
+            val prompt = buildPrompt(userInput, contextMessages)
+            llamaEngine.generate(
+                prompt = prompt,
+                onToken = { token ->
+                    tempResponse += token
+                    _streamingMessage.value = _streamingMessage.value?.copy(content = tempResponse)
+                },
+                onComplete = { finalResponse ->
+                    viewModelScope.launch {
+                        chatRepository.sendMessage(
+                            conversationId = conversation.id,
+                            role = MessageRole.ASSISTANT,
+                            content = finalResponse,
+                            model = modelId
+                        )
+                        _streamingMessage.value = null
+                        _uiState.update { it.copy(isStreaming = false) }
+                    }
+                },
+                onError = { error ->
+                    viewModelScope.launch {
+                        _uiState.update { it.copy(isStreaming = false, error = error) }
+                    }
+                }
+            )
+        } else {
+            val fallbackResponse = "模型未加载，请先在模型库中下载并加载一个模型！"
+            chatRepository.sendMessage(
+                conversationId = conversation.id,
+                role = MessageRole.ASSISTANT,
+                content = fallbackResponse,
+                model = modelId
+            )
+            _streamingMessage.value = null
+            _uiState.update { it.copy(isStreaming = false) }
+        }
+    }
+
+    private fun buildPrompt(userInput: String, contextMessages: List<Message>): String {
+        val context = contextMessages.joinToString("\n") { msg ->
+            when (msg.role) {
+                MessageRole.USER -> "User: ${msg.content}"
+                MessageRole.ASSISTANT -> "Assistant: ${msg.content}"
+                MessageRole.SYSTEM -> "System: ${msg.content}"
+            }
+        }
+        return if (context.isNotEmpty()) {
+            "$context\nUser: $userInput\nAssistant:"
+        } else {
+            "User: $userInput\nAssistant:"
         }
     }
 
     fun selectModel(model: AIModel) {
-        _currentConversation.value = _currentConversation.value?.copy(model = model.id)
+        viewModelScope.launch {
+            modelRepository.switchModel(model.id)
+            llamaEngine.loadModel(model.id)
+            _currentConversation.value = _currentConversation.value?.copy(model = model.id)
+        }
+    }
+
+    fun clearError() {
+        _uiState.update { it.copy(error = null) }
     }
 }
 
 data class ChatUiState(
     val isLoading: Boolean = false,
+    val isStreaming: Boolean = false,
     val error: String? = null
 )

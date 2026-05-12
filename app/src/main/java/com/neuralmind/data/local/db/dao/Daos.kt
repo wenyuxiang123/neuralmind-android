@@ -99,6 +99,9 @@ interface ModelDao {
 
 @Dao
 interface MemoryDao {
+    @Query("SELECT * FROM memories ORDER BY layer, importance DESC")
+    fun getAllMemories(): Flow<List<MemoryEntity>>
+
     @Query("SELECT * FROM memories WHERE isActive = 1 ORDER BY layer, importance DESC")
     fun getAllActiveMemories(): Flow<List<MemoryEntity>>
 
@@ -107,6 +110,9 @@ interface MemoryDao {
 
     @Query("SELECT * FROM memories WHERE id = :id")
     suspend fun getMemoryById(id: Long): MemoryEntity?
+
+    @Query("SELECT COUNT(*) FROM memories")
+    suspend fun getMemoryCount(): Int
 
     @Query("SELECT * FROM memories WHERE content LIKE '%' || :keyword || '%' AND isActive = 1")
     fun searchMemories(keyword: String): Flow<List<MemoryEntity>>

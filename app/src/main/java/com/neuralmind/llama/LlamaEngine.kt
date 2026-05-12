@@ -3,10 +3,13 @@ package com.neuralmind.llama
 import android.content.Context
 import com.neuralmind.data.repository.ModelRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,6 +33,7 @@ class LlamaEngine @Inject constructor(
     suspend fun loadModel(modelId: String): Boolean {
         val modelPath = modelRepository.getModelPath(modelId)
         if (modelPath == null || !File(modelPath).exists()) {
+            _isModelLoaded.value = false
             return false
         }
 
@@ -46,6 +50,39 @@ class LlamaEngine @Inject constructor(
     fun unloadModel() {
         _isModelLoaded.value = false
         currentModelPath = null
+    }
+
+    suspend fun generate(
+        prompt: String,
+        onToken: (String) -> Unit,
+        onComplete: (String) -> Unit,
+        onError: (String) -> Unit,
+        maxTokens: Int = 512,
+        temperature: Float = 0.7f,
+        topP: Float = 0.9f,
+        topK: Int = 40,
+        repeatPenalty: Float = 1.1f,
+        stopSequence: String? = null,
+        stream: Boolean = true
+    ) = withContext(Dispatchers.IO) {
+        _isGenerating.value = true
+
+        try {
+            val response = simulateGenerate(prompt, maxTokens, temperature)
+
+            if (stream) {
+                response.chunked(2).forEach { token ->
+                    onToken(token)
+                    delay(40)
+                }
+            }
+
+            onComplete(response)
+        } catch (e: Exception) {
+            onError(e.message ?: "生成过程中出错")
+        } finally {
+            _isGenerating.value = false
+        }
     }
 
     suspend fun generate(
@@ -78,17 +115,29 @@ class LlamaEngine @Inject constructor(
 
     private fun simulateGenerate(prompt: String, maxTokens: Int, temperature: Float): String {
         return when {
-            prompt.contains("你好") || prompt.contains("hi") -> {
+            prompt.contains("你好") || prompt.contains("hi") || prompt.contains("Hello") -> {
                 "你好！我是 NeuralMind AI，很高兴为您服务。我可以帮助您进行对话、回答问题、执行自动化任务等。"
             }
-            prompt.contains("时间") || prompt.contains("几点") -> {
-                "现在是 ${java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())}"
+            prompt.contains("时间") || prompt.contains("几点") || prompt.contains("现在") -> {
+                "现在是 ${java.text.SimpleDateFormat("yyyy年MM月dd日 HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}"
             }
             prompt.contains("模型") -> {
-                "当前使用的是本地模型，所有推理都在设备上运行，保护您的隐私。"
+                "当前使用的是本地模型，所有推理都在设备上运行，完全保护您的隐私。"
+            }
+            prompt.contains("记忆") || prompt.contains("记住") -> {
+                "我有九层记忆系统：\n\n1. 工作记忆\n2. 短期记忆\n3. 会话记忆\n4. 日程记忆\n5. 个人信息\n6. 偏好记忆\n7. 知识记忆\n8. 习惯记忆\n9. 深度记忆\n\n我会根据您的输入自动激活相应的记忆层。"
+            }
+            prompt.contains("技能") -> {
+                "我内置了多种技能：\n\n- 文件操作\n- 网络搜索\n- 计算器\n- 翻译\n- 天气查询\n- 提醒设置\n- 日历管理\n- 邮件发送\n\n您可以在技能模块中查看和启用各种技能。"
+            }
+            prompt.contains("设备") || prompt.contains("控制") -> {
+                "我可以帮助您控制设备：\n\n- WiFi 开关\n- 蓝牙控制\n- 音量调节\n- 亮度设置\n- 自动化任务\n\n在设备控制模块中可以查看更多功能。"
+            }
+            prompt.contains("工具") -> {
+                "我有全套开发工具：\n\n- 代码编辑器\n- 终端模拟器\n- Git 工具\n- 数据库管理\n- API 测试\n- 文件管理器\n- 网络工具\n- 性能监控\n- 日志查看\n\n这些工具都可以按需下载安装。"
             }
             else -> {
-                "我收到了您的消息：\"${prompt}\"。\n\n作为本地运行的 AI，我可以：\n\n1. 回答问题\n2. 提供建议\n3. 执行设备控制任务\n4. 管理您的对话记忆\n5. 使用各种技能工具\n\n请告诉我您需要什么帮助？"
+                "我收到了您的消息：\"${prompt}\"。\n\n作为本地运行的 AI，我可以：\n\n1. 回答问题\n2. 提供建议\n3. 执行设备控制任务\n4. 管理您的对话记忆\n5. 使用各种技能工具\n6. 帮助您进行开发工作\n\n请告诉我您需要什么帮助？"
             }
         }
     }
