@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NeuralMind</string>
+    <string name="chat">聊天</string>
+    <string name="models">模型</string>
+    <string name="memory">记忆</string>
+    <string name="skills">技能</string>
+    <string name="device">设备</string>
+    <string name="send">发送</string>
+    <string name="download">下载</string>
+    <string name="delete">删除</string>
+    <string name="install">安装</string>
+    <string name="launch">启动</string>
+    <string name="new_chat">新对话</string>
+    <string name="chat_title">对话标题</string>
+    <string name="select_model">选择模型</string>
+    <string name="create">创建</string>
+    <string name="cancel">取消</string>
+</resources>
