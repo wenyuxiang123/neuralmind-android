@@ -4,13 +4,15 @@ import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.content.Context.NOTIFICATION_SERVICE
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.provider.Settings
-import java.lang.reflect.Method
 import android.media.AudioManager
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,9 +28,10 @@ class DeviceController @Inject constructor(
 
     fun isWifiEnabled(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // 对于 Android 10+，需要使用新的 API
-            val wifiState(context)
+            val wifiState = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+            wifiState?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
         } else {
+            @Suppress("DEPRECATION")
             wifiManager.isWifiEnabled
         }
     }
@@ -117,15 +120,15 @@ class DeviceController @Inject constructor(
     }
 
     fun getBatteryLevel(): Int {
-        val batteryLevel = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
-        val level = batteryLevel?.getIntExtra("level", -1) ?: -1
-        val scale = batteryLevel?.getIntExtra("scale", 100)
-        return (level * 100 / scale).toInt()
+        val batteryIntent = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+        val level = batteryIntent?.getIntExtra("level", -1) ?: -1
+        val scale = batteryIntent?.getIntExtra("scale", 100) ?: 100
+        return (level * 100 / scale)
     }
 
     fun isCharging(): Boolean {
-        val batteryStatus = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
-        val status = batteryStatus?.getIntExtra("status", -1) ?: -1
+        val batteryIntent = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+        val status = batteryIntent?.getIntExtra("status", -1) ?: -1
         return status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
                 status == android.os.BatteryManager.BATTERY_STATUS_FULL
     }
@@ -139,8 +142,19 @@ class DeviceController @Inject constructor(
         }
     }
 
-    fun getInstalledApps(): List<AppInfo> {
-        return emptyList()
+    suspend fun getInstalledApps(): List<AppInfo> = withContext(Dispatchers.IO) {
+        val packageManager = context.packageManager
+        val intent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+        intent.addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+        val resolveInfos = packageManager.queryIntentActivities(intent, 0)
+        
+        resolveInfos.map { resolveInfo ->
+            AppInfo(
+                packageName = resolveInfo.activityInfo.packageName,
+                name = resolveInfo.loadLabel(packageManager).toString(),
+                icon = resolveInfo.loadIcon(packageManager)
+            )
+        }
     }
 
     fun launchApp(packageName: String) {
@@ -149,6 +163,39 @@ class DeviceController @Inject constructor(
             intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(it)
         }
+    }
+
+    fun getDeviceInfo(): DeviceInfo {
+        return DeviceInfo(
+            model = Build.MODEL,
+            brand = Build.BRAND,
+            version = Build.VERSION.RELEASE,
+            sdkVersion = Build.VERSION.SDK_INT,
+            totalMemory = getTotalMemory(),
+            availableMemory = getAvailableMemory()
+        )
+    }
+
+    private fun getTotalMemory(): Long {
+        val runtime = Runtime.getRuntime()
+        return runtime.maxMemory()
+    }
+
+    private fun getAvailableMemory(): Long {
+        val runtime = Runtime.getRuntime()
+        return runtime.freeMemory()
+    }
+
+    fun getStorageInfo(): StorageInfo {
+        val externalStorage = android.os.Environment.getExternalStorageDirectory()
+        val stat = android.os.StatFs(externalStorage.path)
+        val blockSize = stat.blockSizeLong
+        val availableBlocks = stat.availableBlocksLong
+        val totalBlocks = stat.blockCountLong
+        return StorageInfo(
+            totalStorage = totalBlocks * blockSize,
+            availableStorage = availableBlocks * blockSize
+        )
     }
 }
 
@@ -171,4 +218,18 @@ data class AppInfo(
     val packageName: String,
     val name: String,
     val icon: android.graphics.drawable.Drawable?
+)
+
+data class DeviceInfo(
+    val model: String,
+    val brand: String,
+    val version: String,
+    val sdkVersion: Int,
+    val totalMemory: Long,
+    val availableMemory: Long
+)
+
+data class StorageInfo(
+    val totalStorage: Long,
+    val availableStorage: Long
 )
