@@ -5,12 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.neuralmind.data.repository.ChatRepository
 import com.neuralmind.data.repository.ModelRepository
 import com.neuralmind.data.repository.MemoryRepository
+import com.neuralmind.data.repository.SkillRepository
 import com.neuralmind.domain.model.AIModel
 import com.neuralmind.domain.model.Conversation
 import com.neuralmind.domain.model.Message
 import com.neuralmind.domain.model.MessageRole
 import com.neuralmind.domain.model.MemoryLayer
 import com.neuralmind.llama.LlamaEngine
+import com.neuralmind.skills.SkillCallManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -21,7 +23,9 @@ class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val modelRepository: ModelRepository,
     private val memoryRepository: MemoryRepository,
-    private val llamaEngine: LlamaEngine
+    private val skillRepository: SkillRepository,
+    private val llamaEngine: LlamaEngine,
+    private val skillCallManager: SkillCallManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -89,7 +93,6 @@ class ChatViewModel @Inject constructor(
     ) {
         val modelId = conversation.model
         val currentTime = System.currentTimeMillis()
-        var tempResponse = ""
 
         _streamingMessage.value = Message(
             id = -1,
@@ -100,6 +103,29 @@ class ChatViewModel @Inject constructor(
             model = modelId
         )
 
+        val detectedSkills = skillCallManager.detectSkillsFromUserInput(userInput)
+        
+        if (detectedSkills.isNotEmpty()) {
+            val skillResults = skillCallManager.callDetectedSkills(userInput)
+            
+            if (skillResults.any { it.success }) {
+                val successfulResults = skillResults.filter { it.success }
+                val combinedResult = successfulResults.joinToString("\n\n") { it.result }
+                
+                chatRepository.sendMessage(
+                    conversationId = conversation.id,
+                    role = MessageRole.ASSISTANT,
+                    content = combinedResult,
+                    model = modelId
+                )
+                _streamingMessage.value = null
+                _uiState.update { it.copy(isStreaming = false) }
+                return
+            }
+        }
+
+        var tempResponse = ""
+        
         val modelLoaded = modelRepository.getCurrentModel().value?.let { model ->
             llamaEngine.loadModel(model.id)
         } ?: false
