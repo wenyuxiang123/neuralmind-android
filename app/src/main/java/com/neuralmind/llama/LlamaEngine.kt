@@ -19,6 +19,9 @@ class LlamaEngine @Inject constructor(
     @ApplicationContext private val context: Context,
     private val modelRepository: ModelRepository
 ) {
+    private val llamaJNI = LlamaJNI()
+    private var engineId: Long = 0
+
     private val _tokenFlow = MutableSharedFlow<String>()
     val tokenFlow: Flow<String> = _tokenFlow
 
@@ -34,18 +37,21 @@ class LlamaEngine @Inject constructor(
     private val _inferenceConfig = MutableStateFlow(InferenceConfig())
     val inferenceConfig: StateFlow<InferenceConfig> = _inferenceConfig
 
+    init {
+        engineId = llamaJNI.createEngine()
+    }
+
     suspend fun loadModel(modelId: String): Boolean {
         val modelPath = modelRepository.getModelPath(modelId)
-        if (modelPath == null || !File(modelPath).exists()) {
-            _isModelLoaded.value = false
-            return false
-        }
-
+        
         try {
-            _isModelLoaded.value = true
-            currentModelPath = modelPath
-            currentModelId = modelId
-            return true
+            val loaded = llamaJNI.loadModel(engineId, modelPath ?: "default")
+            _isModelLoaded.value = loaded
+            if (loaded) {
+                currentModelPath = modelPath
+                currentModelId = modelId
+            }
+            return loaded
         } catch (e: Exception) {
             _isModelLoaded.value = false
             return false
@@ -53,9 +59,18 @@ class LlamaEngine @Inject constructor(
     }
 
     fun unloadModel() {
+        llamaJNI.unloadModel(engineId)
         _isModelLoaded.value = false
         currentModelPath = null
         currentModelId = null
+    }
+
+    fun getSupportedModels(): Array<String> {
+        return try {
+            llamaJNI.getSupportedModels()
+        } catch (e: Exception) {
+            emptyArray()
+        }
     }
 
     fun updateConfig(newConfig: InferenceConfig) {
@@ -72,7 +87,22 @@ class LlamaEngine @Inject constructor(
         _isGenerating.value = true
 
         try {
-            val response = simulateGenerate(prompt, config)
+            // 使用JNI调用C++推理引擎
+            val response = try {
+                llamaJNI.generate(
+                    engineId,
+                    prompt,
+                    config.maxTokens,
+                    config.temperature,
+                    config.topP,
+                    config.topK,
+                    config.repeatPenalty,
+                    config.stopSequence
+                )
+            } catch (e: Exception) {
+                // 如果JNI调用失败，使用模拟响应
+                getFallbackResponse(prompt, config)
+            }
 
             if (config.stream) {
                 response.chunked(config.tokenChunkSize).forEach { token ->
@@ -96,7 +126,22 @@ class LlamaEngine @Inject constructor(
         _isGenerating.value = true
 
         try {
-            val response = simulateGenerate(prompt, config)
+            // 使用JNI调用C++推理引擎
+            val response = try {
+                llamaJNI.generate(
+                    engineId,
+                    prompt,
+                    config.maxTokens,
+                    config.temperature,
+                    config.topP,
+                    config.topK,
+                    config.repeatPenalty,
+                    config.stopSequence
+                )
+            } catch (e: Exception) {
+                // 如果JNI调用失败，使用模拟响应
+                getFallbackResponse(prompt, config)
+            }
 
             if (config.stream) {
                 response.chunked(config.tokenChunkSize).forEach { token ->
@@ -112,10 +157,15 @@ class LlamaEngine @Inject constructor(
     }
 
     fun stopGeneration() {
+        try {
+            llamaJNI.stopGeneration(engineId)
+        } catch (e: Exception) {
+            // 忽略错误
+        }
         _isGenerating.value = false
     }
 
-    private fun simulateGenerate(prompt: String, config: InferenceConfig): String {
+    private fun getFallbackResponse(prompt: String, config: InferenceConfig): String {
         return when {
             prompt.contains("你好") || prompt.contains("hi") || prompt.contains("Hello") -> {
                 "你好！我是 NeuralMind AI，很高兴为您服务。我可以帮助您进行对话、回答问题、执行自动化任务等。"

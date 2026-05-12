@@ -3,7 +3,12 @@ package com.neuralmind.di
 import android.content.Context
 import com.neuralmind.data.repository.*
 import com.neuralmind.llama.LlamaEngine
+import com.neuralmind.llama.LlamaJNI
 import com.neuralmind.device.DeviceController
+import com.neuralmind.network.NetworkManager
+import com.neuralmind.network.ModelDownloader
+import com.neuralmind.skills.SkillExecutor
+import com.neuralmind.skills.SkillCallManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -17,14 +22,54 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideLlamaEngine(): LlamaEngine {
-        return LlamaEngine()
+    fun provideLlamaJNI(): LlamaJNI {
+        return LlamaJNI()
+    }
+
+    @Provides
+    @Singleton
+    fun provideLlamaEngine(
+        @ApplicationContext context: Context,
+        modelRepository: ModelRepository
+    ): LlamaEngine {
+        return LlamaEngine(context, modelRepository)
     }
 
     @Provides
     @Singleton
     fun provideDeviceController(@ApplicationContext context: Context): DeviceController {
         return DeviceController(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideNetworkManager(): NetworkManager {
+        return NetworkManager()
+    }
+
+    @Provides
+    @Singleton
+    fun provideModelDownloader(
+        @ApplicationContext context: Context,
+        networkManager: NetworkManager,
+        modelRepository: ModelRepository
+    ): ModelDownloader {
+        return ModelDownloader(context, networkManager, modelRepository)
+    }
+
+    @Provides
+    @Singleton
+    fun provideSkillExecutor(@ApplicationContext context: Context): SkillExecutor {
+        return SkillExecutor(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideSkillCallManager(
+        skillRepository: SkillRepository,
+        skillExecutor: SkillExecutor
+    ): SkillCallManager {
+        return SkillCallManager(skillRepository, skillExecutor)
     }
 
     @Provides
@@ -38,9 +83,10 @@ object AppModule {
     @Provides
     fun provideModelRepository(
         modelDao: com.neuralmind.data.local.db.dao.ModelDao,
-        @ApplicationContext context: Context
+        @ApplicationContext context: Context,
+        modelDownloader: ModelDownloader
     ): ModelRepository {
-        return ModelRepository(modelDao, context)
+        return ModelRepository(modelDao, context, modelDownloader)
     }
 
     @Provides
@@ -68,8 +114,9 @@ object AppModule {
     @Provides
     fun provideToolkitRepository(
         toolModuleDao: com.neuralmind.data.local.db.dao.ToolModuleDao,
+        toolExecutor: com.neuralmind.tools.ToolExecutor,
         @ApplicationContext context: Context
     ): ToolkitRepository {
-        return ToolkitRepository(toolModuleDao, context)
+        return ToolkitRepository(toolModuleDao, toolExecutor, context)
     }
 }
