@@ -2,6 +2,7 @@ package com.neuralmind.core
 
 import android.content.Context
 import android.util.Log
+import com.neuralmind.BuildConfig
 import java.io.File
 import java.io.FileWriter
 import java.io.PrintWriter
