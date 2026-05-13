@@ -31,7 +31,7 @@ class ToolExecutor @Inject constructor(
      * @return CommandResult with output, error, and exit code
      */
     suspend fun executeCommand(command: String): CommandResult = withContext(Dispatchers.IO) {
-        val parts = command.trim().split("\s+".toRegex())
+        val parts = command.trim().split("""\s+""".toRegex())
         val baseCommand = parts.firstOrNull() ?: ""
         
         if (baseCommand.isEmpty()) {
