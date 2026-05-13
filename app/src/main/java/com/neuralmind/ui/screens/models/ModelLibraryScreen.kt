@@ -1,5 +1,6 @@
 package com.neuralmind.ui.screens.models
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -120,8 +121,9 @@ fun ModelCard(
     isDownloading: Boolean
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = if (isInstalled) onSelect else {},
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = isInstalled) { onSelect() },
         colors = CardDefaults.cardColors(
             containerColor = if (isInstalled) {
                 MaterialTheme.colorScheme.primaryContainer
