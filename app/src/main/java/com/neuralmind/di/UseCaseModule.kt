@@ -125,8 +125,23 @@ object UseCaseModule {
 
     @Provides
     @ViewModelScoped
-    fun provideExecuteSkillUseCase(repo: SkillRepository): ExecuteSkillUseCase =
-        ExecuteSkillUseCase(repo)
+    fun provideUninstallSkillUseCase(repo: SkillRepository): UninstallSkillUseCase =
+        UninstallSkillUseCase(repo)
+
+    @Provides
+    @ViewModelScoped
+    fun provideActivateSkillUseCase(repo: SkillRepository): ActivateSkillUseCase =
+        ActivateSkillUseCase(repo)
+
+    @Provides
+    @ViewModelScoped
+    fun provideDeactivateSkillUseCase(repo: SkillRepository): DeactivateSkillUseCase =
+        DeactivateSkillUseCase(repo)
+
+    @Provides
+    @ViewModelScoped
+    fun provideGetActiveSystemPromptsUseCase(repo: SkillRepository): GetActiveSystemPromptsUseCase =
+        GetActiveSystemPromptsUseCase(repo)
 
     // Device Use Cases
     @Provides
