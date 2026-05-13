@@ -43,20 +43,6 @@ class LlamaJNI {
             stopSequence: String?
         ): String
 
-        // Streaming generation: returns complete response, but calls onToken for each token
-        // Parameters identical to generate(), but tokens are streamed via onToken callback
-        @JvmStatic
-        external fun generateStream(
-            engineId: Long,
-            prompt: String,
-            maxTokens: Int,
-            temperature: Float,
-            topP: Float,
-            topK: Int,
-            repeatPenalty: Float,
-            stopSequence: String?
-        ): String
-
         @JvmStatic
         external fun stopGeneration(engineId: Long)
 
@@ -75,6 +61,19 @@ class LlamaJNI {
         @JvmStatic
         external fun getSupportedModels(): Array<String>
     }
+
+    // Instance method - called by C++ JNI for streaming token callback
+    // NOT @JvmStatic because C++ needs a real instance (thiz) to call onToken()
+    external fun generateStream(
+        engineId: Long,
+        prompt: String,
+        maxTokens: Int,
+        temperature: Float,
+        topP: Float,
+        topK: Int,
+        repeatPenalty: Float,
+        stopSequence: String?
+    ): String
 
     // Called by C++ JNI layer for each generated token during streaming
     fun onToken(token: String) {
