@@ -20,6 +20,7 @@ import com.neuralmind.domain.model.MemoryLayer
 import com.neuralmind.ui.theme.*
 import com.neuralmind.ui.viewmodel.MemoryViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MemoryScreen(viewModel: MemoryViewModel = hiltViewModel(), onNavigateBack: () -> Unit) {
     val memories by viewModel.memories.collectAsState()
