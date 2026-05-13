@@ -9,13 +9,10 @@ import com.neuralmind.network.ModelDownloader
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Singleton
 class ModelRepository @Inject constructor(
@@ -59,10 +56,10 @@ class ModelRepository @Inject constructor(
     /**
      * Get the local file path for a downloaded model.
      * @param modelId The model identifier
-     * @return The absolute path to the model file, or null if not installed
+     * @return The absolute path to the model file, or null if not installed / file missing
      */
-    suspend fun getModelPath(modelId: String): String? {
-        return modelDao.getModelById(modelId)?.localPath
+    fun getModelPath(modelId: String): String? {
+        return modelDownloader.getModelPath(modelId).takeIf { it.exists() }?.absolutePath
     }
 
     suspend fun switchModel(modelId: String) {
@@ -170,7 +167,7 @@ class ModelRepository @Inject constructor(
                 minStorage = 3072,
                 recommendedRam = 4096,
                 supportsGpu = true,
-                supportsNnapi = false
+                supportsNnapi = False
             ),
             ModelEntity(
                 id = "mistral-7b",
@@ -186,7 +183,7 @@ class ModelRepository @Inject constructor(
                 minStorage = 6144,
                 recommendedRam = 6144,
                 supportsGpu = true,
-                supportsNnapi = false
+                supportsNnapi = False
             ),
             ModelEntity(
                 id = "llama3.1-8b",
@@ -202,7 +199,7 @@ class ModelRepository @Inject constructor(
                 minStorage = 7168,
                 recommendedRam = 8192,
                 supportsGpu = true,
-                supportsNnapi = false
+                supportsNnapi = False
             ),
             // Code models - 专业代码生成模型
             ModelEntity(
@@ -219,7 +216,7 @@ class ModelRepository @Inject constructor(
                 minStorage = 3584,
                 recommendedRam = 4096,
                 supportsGpu = true,
-                supportsNnapi = false
+                supportsNnapi = False
             ),
             ModelEntity(
                 id = "qwen2.5-coder-1.5b",
@@ -235,7 +232,7 @@ class ModelRepository @Inject constructor(
                 minStorage = 1536,
                 recommendedRam = 2048,
                 supportsGpu = true,
-                supportsNnapi = false
+                supportsNnapi = False
             )
         )
         defaultModels.forEach { modelDao.insert(it) }
@@ -284,10 +281,6 @@ class ModelRepository @Inject constructor(
         if (_currentModel.value?.id == modelId) {
             _currentModel.value = null
         }
-    }
-
-    fun getModelPath(modelId: String): String? {
-        return modelDownloader.getModelPath(modelId).takeIf { it.exists() }?.absolutePath
     }
 
     suspend fun updateModelDownloaded(modelId: String, path: String) {
