@@ -1,6 +1,5 @@
 package com.neuralmind.ui.screens.skills
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,6 +11,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuralmind.domain.model.Skill
@@ -40,7 +41,6 @@ fun SkillsScreen(
                 }
             },
             actions = {
-                // 已安装筛选按钮
                 IconButton(onClick = { viewModel.toggleInstalledFilter() }) {
                     Icon(
                         if (showInstalledOnly) Icons.Default.FilterAlt else Icons.Default.FilterAltOff,
@@ -51,22 +51,16 @@ fun SkillsScreen(
             }
         )
         
-        // 分类 TabRow
         ScrollableTabRow(
-            selectedTabIndex = SkillCategory.entries.indexOf(selectedCategory).coerceAtLeast(0),
+            selectedTabIndex = TabIndex.entries.indexOfFirst { it.category == selectedCategory }.coerceAtLeast(0),
             edgePadding = 16.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Tab(
-                selected = selectedCategory == SkillCategory.PRODUCTIVITY,
-                onClick = { viewModel.selectCategory(SkillCategory.PRODUCTIVITY) },
-                text = { Text("全部") }
-            )
-            SkillCategory.entries.forEach { category ->
+            TabIndex.entries.forEach { tab ->
                 Tab(
-                    selected = selectedCategory == category,
-                    onClick = { viewModel.selectCategory(category) },
-                    text = { Text(getCategoryDisplayName(category)) }
+                    selected = selectedCategory == tab.category,
+                    onClick = { viewModel.selectCategory(tab.category) },
+                    text = { Text(tab.displayName) }
                 )
             }
         }
@@ -128,6 +122,15 @@ fun SkillsScreen(
     }
 }
 
+private enum class TabIndex(val category: SkillCategory, val displayName: String) {
+    ALL(SkillCategory.PRODUCTIVITY, "全部"),
+    PRODUCTIVITY(SkillCategory.PRODUCTIVITY, "效率"),
+    CREATIVE(SkillCategory.CREATIVE, "创意"),
+    LEARNING(SkillCategory.LEARNING, "学习"),
+    UTILITY(SkillCategory.UTILITY, "工具"),
+    LIFESTYLE(SkillCategory.LIFESTYLE, "生活")
+}
+
 @Composable
 fun SkillCard(
     skill: Skill,
@@ -157,7 +160,6 @@ fun SkillCard(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 技能图标
                     Surface(
                         shape = MaterialTheme.shapes.medium,
                         color = getCategoryColor(skill.category).copy(alpha = 0.15f),
@@ -212,7 +214,6 @@ fun SkillCard(
                 }
             }
             
-            // 适用场景
             if (skill.scenarios.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -226,22 +227,14 @@ fun SkillCard(
             
             Spacer(modifier = Modifier.height(8.dp))
             
-            // 作者和版本
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "作者: ${skill.author} · v${skill.version}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            }
+            Text(
+                text = "作者: ${skill.author} · v${skill.version}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
             
             Spacer(modifier = Modifier.height(12.dp))
             
-            // 操作按钮
             SkillActionButtons(
                 skill = skill,
                 onInstall = onInstall,
@@ -267,7 +260,6 @@ fun SkillActionButtons(
     ) {
         when {
             !skill.isAvailable -> {
-                // 即将推出
                 OutlinedButton(
                     onClick = { },
                     enabled = false,
@@ -279,7 +271,6 @@ fun SkillActionButtons(
                 }
             }
             !skill.isInstalled -> {
-                // 未安装 - 显示安装按钮
                 Button(
                     onClick = onInstall,
                     modifier = Modifier.weight(1f)
@@ -290,7 +281,6 @@ fun SkillActionButtons(
                 }
             }
             skill.isInstalled && !skill.isActive -> {
-                // 已安装但未激活 - 显示启用按钮
                 Button(
                     onClick = onActivate,
                     modifier = Modifier.weight(1f)
@@ -309,7 +299,6 @@ fun SkillActionButtons(
                 }
             }
             skill.isActive -> {
-                // 已激活 - 显示已启用状态和停用按钮
                 Button(
                     onClick = { },
                     enabled = false,
@@ -336,28 +325,17 @@ fun SkillActionButtons(
     }
 }
 
-fun getCategoryDisplayName(category: SkillCategory): String {
+fun getCategoryColor(category: SkillCategory): Color {
     return when (category) {
-        SkillCategory.PRODUCTIVITY -> "全部"
-        SkillCategory.UTILITY -> "工具"
-        SkillCategory.PRODUCTIVITY -> "效率"
-        SkillCategory.CREATIVE -> "创意"
-        SkillCategory.LEARNING -> "学习"
-        SkillCategory.LIFESTYLE -> "生活"
+        SkillCategory.PRODUCTIVITY -> Color(0xFF1976D2)
+        SkillCategory.UTILITY -> Color(0xFF388E3C)
+        SkillCategory.CREATIVE -> Color(0xFF7B1FA2)
+        SkillCategory.LEARNING -> Color(0xFFE64A19)
+        SkillCategory.LIFESTYLE -> Color(0xFF00796B)
     }
 }
 
-fun getCategoryColor(category: SkillCategory): androidx.compose.ui.graphics.Color {
-    return when (category) {
-        SkillCategory.PRODUCTIVITY -> androidx.compose.ui.graphics.Color(0xFF1976D2)
-        SkillCategory.UTILITY -> androidx.compose.ui.graphics.Color(0xFF388E3C)
-        SkillCategory.CREATIVE -> androidx.compose.ui.graphics.Color(0xFF7B1FA2)
-        SkillCategory.LEARNING -> androidx.compose.ui.graphics.Color(0xFFE64A19)
-        SkillCategory.LIFESTYLE -> androidx.compose.ui.graphics.Color(0xFF00796B)
-    }
-}
-
-fun getSkillIcon(iconName: String): androidx.compose.ui.graphics.vector.ImageVector {
+fun getSkillIcon(iconName: String): ImageVector {
     return when (iconName) {
         "edit_note" -> Icons.Default.Edit
         "compress" -> Icons.Default.Compress
