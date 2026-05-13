@@ -44,6 +44,7 @@ fun MemoryScreen(viewModel: MemoryViewModel = hiltViewModel(), onNavigateBack: (
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DarkMemoryLayerCard(layer: MemoryLayer, isActive: Boolean, memoryCount: Int, onToggle: () -> Unit, modifier: Modifier = Modifier) {
     val layerColors = listOf(MemoryLayer1, MemoryLayer2, MemoryLayer3, MemoryLayer4, MemoryLayer5, MemoryLayer6, MemoryLayer7, MemoryLayer8, MemoryLayer9)
