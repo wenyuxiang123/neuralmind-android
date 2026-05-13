@@ -1,14 +1,20 @@
 package com.neuralmind.data.repository
 
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+import com.google.gson.JsonArray
 import com.neuralmind.data.local.db.dao.AutomationRuleDao
 import com.neuralmind.data.local.db.entity.AutomationRuleEntity
 import com.neuralmind.device.DeviceController
 import com.neuralmind.domain.model.AutomationRule
 import com.neuralmind.domain.model.BluetoothAction
 import com.neuralmind.domain.model.BrightnessAction
+import com.neuralmind.domain.model.Condition
 import com.neuralmind.domain.model.DeviceAction
 import com.neuralmind.domain.model.DeviceStatus
 import com.neuralmind.domain.model.LaunchAppAction
+import com.neuralmind.domain.model.LocationTrigger
+import com.neuralmind.domain.model.TimeTrigger
 import com.neuralmind.domain.model.VolumeAction
 import com.neuralmind.domain.model.WifiAction
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -25,6 +31,8 @@ class DeviceRepository @Inject constructor(
     private val automationRuleDao: AutomationRuleDao,
     @ApplicationContext private val context: android.content.Context
 ) {
+    private val gson = Gson()
+
     suspend fun getDeviceStatus(): DeviceStatus = withContext(Dispatchers.IO) {
         val deviceInfo = deviceController.getDeviceInfo()
         val storageInfo = deviceController.getStorageInfo()
@@ -152,18 +160,103 @@ class DeviceRepository @Inject constructor(
     }
 
     private fun AutomationRuleEntity.toDomain(): AutomationRule {
+        val triggers = parseTriggers(triggersJson)
+        val conditions = parseConditions(conditionsJson)
+        val actions = parseActions(actionsJson)
+        
         return AutomationRule(
             id = id,
             name = name,
             description = description,
-            triggers = emptyList(),
-            conditions = emptyList(),
-            actions = emptyList(),
+            triggers = triggers,
+            conditions = conditions,
+            actions = actions,
             isEnabled = isEnabled,
             lastTriggered = lastTriggered,
             triggerCount = triggerCount,
             createdAt = createdAt,
             updatedAt = updatedAt
         )
+    }
+
+    private fun parseTriggers(json: String): List<com.neuralmind.domain.model.Trigger> {
+        return try {
+            val array = gson.fromJson(json, JsonArray::class.java) ?: return emptyList()
+            array.mapNotNull { element ->
+                val obj = element.asJsonObject
+                when (obj.get("type")?.asString) {
+                    "time" -> TimeTrigger(
+                        id = obj.get("id")?.asString ?: "",
+                        name = obj.get("name")?.asString ?: "时间触发",
+                        time = obj.get("time")?.asString ?: "",
+                        repeat = com.neuralmind.domain.model.RepeatMode.valueOf(
+                            obj.get("repeat")?.asString ?: "ONCE"
+                        )
+                    )
+                    "location" -> LocationTrigger(
+                        id = obj.get("id")?.asString ?: "",
+                        name = obj.get("name")?.asString ?: "位置触发",
+                        latitude = obj.get("latitude")?.asDouble ?: 0.0,
+                        longitude = obj.get("longitude")?.asDouble ?: 0.0,
+                        radius = obj.get("radius")?.asFloat ?: 100f,
+                        event = com.neuralmind.domain.model.LocationEvent.valueOf(
+                            obj.get("event")?.asString ?: "ENTER"
+                        )
+                    )
+                    else -> null
+                }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun parseConditions(json: String): List<Condition> {
+        // 条件解析实现，根据实际需求扩展
+        return try {
+            val array = gson.fromJson(json, JsonArray::class.java) ?: return emptyList()
+            array.mapNotNull { element ->
+                val obj = element.asJsonObject
+                when (obj.get("type")?.asString) {
+                    "battery" -> com.neuralmind.domain.model.BatteryTrigger(
+                        id = obj.get("id")?.asString ?: "",
+                        name = obj.get("name")?.asString ?: "电量条件",
+                        threshold = obj.get("threshold")?.asInt ?: 20,
+                        event = com.neuralmind.domain.model.BatteryEvent.valueOf(
+                            obj.get("event")?.asString ?: "BELOW"
+                        )
+                    )
+                    else -> null
+                }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun parseActions(json: String): List<DeviceAction> {
+        return try {
+            val array = gson.fromJson(json, JsonArray::class.java) ?: return emptyList()
+            array.mapNotNull { element ->
+                val obj = element.asJsonObject
+                when (obj.get("type")?.asString) {
+                    "wifi" -> WifiAction(obj.get("enable")?.asBoolean ?: true)
+                    "bluetooth" -> BluetoothAction(obj.get("enable")?.asBoolean ?: true)
+                    "brightness" -> BrightnessAction(obj.get("level")?.asInt ?: 50)
+                    "volume" -> VolumeAction(
+                        stream = com.neuralmind.device.AudioStream.valueOf(
+                            obj.get("stream")?.asString ?: "MEDIA"
+                        ),
+                        level = obj.get("level")?.asInt ?: 10
+                    )
+                    "launch_app" -> LaunchAppAction(
+                        obj.get("packageName")?.asString ?: ""
+                    )
+                    else -> null
+                }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 }
