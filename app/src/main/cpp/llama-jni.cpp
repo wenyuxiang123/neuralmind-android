@@ -8,6 +8,8 @@
 #include <mutex>
 #include <memory>
 #include <atomic>
+#include <thread>
+#include <chrono>
 #include <android/log.h>
 
 // Include llama.cpp headers
