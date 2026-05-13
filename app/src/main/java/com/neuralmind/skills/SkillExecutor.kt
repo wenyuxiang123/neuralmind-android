@@ -47,15 +47,9 @@ class SkillExecutor @Inject constructor(
         
         return try {
             val result = evaluateExpression(expression)
-            "🧮 计算结果
-
-表达式: $expression
-结果: $result"
+            "🧮 计算结果\n\n表达式: $expression\n结果: $result"
         } catch (e: Exception) {
-            "❌ 计算失败
-
-表达式: $expression
-错误: ${e.message}"
+            "❌ 计算失败\n\n表达式: $expression\n错误: ${e.message}"
         }
     }
 
