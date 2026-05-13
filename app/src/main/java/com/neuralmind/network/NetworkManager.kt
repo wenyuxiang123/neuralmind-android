@@ -85,7 +85,7 @@ class NetworkManager @Inject constructor() {
         val append = downloadedBytes > 0 && response.code == 206
         
         targetFile.parentFile?.mkdirs()
-        targetFile.outputStream(append).use { output ->
+        java.io.FileOutputStream(targetFile, append).use { output ->
             body.byteStream().use { input ->
                 val buffer = ByteArray(8192)
                 var bytesRead: Int
