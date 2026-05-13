@@ -91,10 +91,9 @@ class SkillExecutor @Inject constructor(
         var result = expr
         while (powerRegex.containsMatchIn(result)) {
             result = powerRegex.replace(result) { 
-                pow(
-                    it.groupValues[1].toDouble(), 
-                    it.groupValues[2].toDouble()
-                ).toString()
+                it.groupValues[1].toDouble()
+                    .pow(it.groupValues[2].toDouble())
+                    .toString()
             }
         }
         return result
