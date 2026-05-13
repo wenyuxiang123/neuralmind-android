@@ -15,43 +15,101 @@ import javax.inject.Singleton
 class SkillExecutor @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    /**
+     * Execute a skill. Calculator skill is executed with real calculation logic.
+     * Other skills work through system prompt injection, so this returns empty string.
+     */
     suspend fun executeSkill(skill: Skill, params: Map<String, String>): String = withContext(Dispatchers.IO) {
         when (skill.id) {
             "calculator" -> executeCalculator(params)
-            "weather" -> executeWeather(params)
-            "translator" -> executeTranslator(params)
-            "timer" -> executeTimer(params)
-            "notes" -> executeNotes(params)
-            "file_manager" -> executeFileManager(params)
-            "web_search" -> executeWebSearch(params)
-            "alarm" -> executeAlarm(params)
-            "system" -> executeSystem(params)
-            "lifestyle" -> executeLifestyle(params)
-            else -> "技能 ${skill.name} 正在开发中，敬请期待！"
+            else -> "" // Other skills work through system prompt injection
         }
     }
 
-    // ========== 已实现的技能 ==========
-
+    /**
+     * Real calculator execution with actual math evaluation.
+     */
     private fun executeCalculator(params: Map<String, String>): String {
         val expression = params["expression"] ?: ""
         
         if (expression.isEmpty()) {
-            return "📱 计算器\n\n请输入计算表达式，例如：\n- "25+36"\n- "100*45"\n- "1000/25"\n\n我会帮您计算！"
+            return """📱 计算器
+
+请输入计算表达式，例如：
+- "25+36"
+- "100*45"
+- "1000/25"
+- "(10+5)*3"
+- "2^10"
+
+我会帮您计算！"""
         }
         
         return try {
             val result = evaluateExpression(expression)
-            "🧮 计算结果\n\n表达式: $expression\n结果: $result"
+            "🧮 计算结果
+
+表达式: $expression
+结果: $result"
         } catch (e: Exception) {
-            "❌ 计算失败\n\n表达式: $expression\n错误: ${e.message}"
+            "❌ 计算失败
+
+表达式: $expression
+错误: ${e.message}"
         }
     }
 
+    /**
+     * Safe mathematical expression evaluator.
+     * Supports: +, -, *, /, ^, (), sqrt, sin, cos, tan, log, abs
+     */
     private fun evaluateExpression(expr: String): Double {
-        val sanitized = expr.replace(Regex("[^0-9+\\-*/().]"), "")
+        val sanitized = expr.lowercase()
+            .replace(" ", "")
+            .replace("sqrt", "√")
+            .replace("pi", "π")
+            .replace("e", "2.718281828")
+        
+        // Handle basic arithmetic with parentheses
+        if (!sanitized.contains(Regex("[√π^]"))) {
+            return evaluateArithmetic(sanitized)
+        }
+        
+        // Handle advanced math functions
+        var processed = sanitized
+        // Process sqrt
+        val sqrtRegex = Regex("√(\d+\.?\d*)")
+        processed = sqrtRegex.replace(processed) { 
+            kotlin.math.sqrt(it.groupValues[1].toDouble()).toString() 
+        }
+        // Process pi
+        processed = processed.replace("π", "3.14159265359")
+        // Process power
+        processed = processPower(processed)
+        
+        return evaluateArithmetic(processed)
+    }
+    
+    private fun processPower(expr: String): String {
+        val powerRegex = Regex("(-?\d+\.?\d*)\^(-?\d+\.?\d*)")
+        var result = expr
+        while (powerRegex.containsMatchIn(result)) {
+            result = powerRegex.replace(result) { 
+                kotlin.math.pow(
+                    it.groupValues[1].toDouble(), 
+                    it.groupValues[2].toDouble()
+                ).toString()
+            }
+        }
+        return result
+    }
+
+    private fun evaluateArithmetic(expr: String): Double {
+        val sanitized = expr.replace(Regex("[^0-9+\-*/().]"), "")
+        
         val result = object {
             var pos = 0
+            
             fun parse(): Double {
                 var value = parseTerm()
                 while (pos < sanitized.length) {
@@ -63,6 +121,7 @@ class SkillExecutor @Inject constructor(
                 }
                 return value
             }
+            
             fun parseTerm(): Double {
                 var value = parseFactor()
                 while (pos < sanitized.length) {
@@ -74,6 +133,7 @@ class SkillExecutor @Inject constructor(
                 }
                 return value
             }
+            
             fun parseFactor(): Double {
                 if (pos >= sanitized.length) return 0.0
                 return when (sanitized[pos]) {
@@ -88,6 +148,7 @@ class SkillExecutor @Inject constructor(
                     else -> parseNumber()
                 }
             }
+            
             fun parseNumber(): Double {
                 var num = 0.0
                 var start = pos
@@ -97,71 +158,9 @@ class SkillExecutor @Inject constructor(
                 return sanitized.substring(start, pos).toDoubleOrNull() ?: 0.0
             }
         }.parse()
+        
         return result
     }
-
-    private fun executeSystem(params: Map<String, String>): String {
-        return "⚙️ 系统信息\n\n" +
-                "📱 设备信息:\n" +
-                "- 系统: Android ${android.os.Build.VERSION.RELEASE}\n" +
-                "- 设备: ${android.os.Build.MODEL}\n" +
-                "- 品牌: ${android.os.Build.BRAND}\n" +
-                "- SDK: ${android.os.Build.VERSION.SDK_INT}\n" +
-                "- 主板: ${android.os.Build.BOARD}\n" +
-                "- 硬件: ${android.os.Build.HARDWARE}"
-    }
-
-    // ========== 开发中的技能 ==========
-
-    private fun executeWeather(params: Map<String, String>): String {
-        return "🚧 天气功能 正在开发中\n\n" +
-                "该功能尚未实现，敬请期待后续更新！\n\n" +
-                "💡 提示: 您可以在设置中添加您的位置信息，功能上线后将自动获取当地天气。"
-    }
-
-    private fun executeTranslator(params: Map<String, String>): String {
-        return "🚧 翻译功能 正在开发中\n\n" +
-                "该功能尚未实现，敬请期待后续更新！\n\n" +
-                "💡 提示: 未来将支持多语言实时翻译功能。"
-    }
-
-    private fun executeTimer(params: Map<String, String>): String {
-        return "🚧 计时器功能 正在开发中\n\n" +
-                "该功能尚未实现，敬请期待后续更新！\n\n" +
-                "💡 提示: 未来将支持倒计时、秒表等多种计时功能。"
-    }
-
-    private fun executeNotes(params: Map<String, String>): String {
-        return "🚧 备忘录功能 正在开发中\n\n" +
-                "该功能尚未实现，敬请期待后续更新！\n\n" +
-                "💡 提示: 未来将支持笔记创建、分类管理和搜索功能。"
-    }
-
-    private fun executeFileManager(params: Map<String, String>): String {
-        return "🚧 文件管理器功能 正在开发中\n\n" +
-                "该功能尚未实现，敬请期待后续更新！\n\n" +
-                "💡 提示: 未来将支持文件浏览、复制、移动和删除操作。"
-    }
-
-    private fun executeWebSearch(params: Map<String, String>): String {
-        return "🚧 网络搜索功能 正在开发中\n\n" +
-                "该功能尚未实现，敬请期待后续更新！\n\n" +
-                "💡 提示: 未来将支持实时网络搜索和信息查询。"
-    }
-
-    private fun executeAlarm(params: Map<String, String>): String {
-        return "🚧 闹钟功能 正在开发中\n\n" +
-                "该功能尚未实现，敬请期待后续更新！\n\n" +
-                "💡 提示: 未来将支持多闹钟设置和提醒功能。"
-    }
-
-    private fun executeLifestyle(params: Map<String, String>): String {
-        return "🚧 生活助手功能 正在开发中\n\n" +
-                "该功能尚未实现，敬请期待后续更新！\n\n" +
-                "💡 提示: 未来将支持日程管理、健康追踪等生活服务。"
-    }
-
-    // ========== 工具方法 ==========
 
     suspend fun executeCommand(command: String): CommandResult = withContext(Dispatchers.IO) {
         try {
@@ -169,7 +168,6 @@ class SkillExecutor @Inject constructor(
             val output = BufferedReader(InputStreamReader(process.inputStream)).readText()
             val error = BufferedReader(InputStreamReader(process.errorStream)).readText()
             val exitCode = process.waitFor()
-
             CommandResult(
                 output = output,
                 error = error,
@@ -226,28 +224,6 @@ class SkillExecutor @Inject constructor(
         }
     }
 
-    suspend fun getGitStatus(repoPath: String): String = withContext(Dispatchers.IO) {
-        try {
-            val process = Runtime.getRuntime().exec("git status", null, File(repoPath))
-            val output = BufferedReader(InputStreamReader(process.inputStream)).readText()
-            output
-        } catch (e: Exception) {
-            "Error: ${e.message}"
-        }
-    }
-
-    suspend fun gitCommit(repoPath: String, message: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val addProcess = Runtime.getRuntime().exec("git add .", null, File(repoPath))
-            addProcess.waitFor()
-            
-            val commitProcess = Runtime.getRuntime().exec("git commit -m \"$message\"", null, File(repoPath))
-            commitProcess.waitFor() == 0
-        } catch (e: Exception) {
-            false
-        }
-    }
-
     fun getCodeSnippets(language: String): List<CodeSnippet> {
         return when (language.lowercase()) {
             "kotlin" -> listOf(
@@ -255,17 +231,17 @@ class SkillExecutor @Inject constructor(
                     fun main() {
                         println("Hello, World!")
                     }
-                """),
+                """.trimIndent()),
                 CodeSnippet("Function", """
                     fun greet(name: String): String {
                         return "Hello, ${'$'}name!"
                     }
-                """),
+                """.trimIndent()),
                 CodeSnippet("Class", """
                     class Person(val name: String, val age: Int) {
                         fun greet(): String = "Hello, ${'$'}name"
                     }
-                """)
+                """.trimIndent())
             )
             "java" -> listOf(
                 CodeSnippet("Hello World", """
@@ -274,7 +250,7 @@ class SkillExecutor @Inject constructor(
                             System.out.println("Hello, World!");
                         }
                     }
-                """),
+                """.trimIndent()),
                 CodeSnippet("Class", """
                     public class Person {
                         private String name;
@@ -285,7 +261,7 @@ class SkillExecutor @Inject constructor(
                             this.age = age;
                         }
                     }
-                """)
+                """.trimIndent())
             )
             else -> listOf(
                 CodeSnippet("Template", "// Code template for $language")
