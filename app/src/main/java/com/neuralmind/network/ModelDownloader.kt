@@ -107,7 +107,7 @@ class ModelDownloader @Inject constructor(
         return if (file.exists()) {
             file.delete()
             scope.launch {
-                modelRepository.updateModelDeleted(modelId)
+                modelRepository.get().updateModelDeleted(modelId)
             }
             _downloadStates.value = _downloadStates.value - modelId
             true
