@@ -83,19 +83,17 @@ struct ggml_tensor {
     size_t view_offset;
 
     struct ggml_tensor * grad;
-    struct ggml_tensor * src[GGML_MAX_SRC];
+    struct ggml_tensor * src[8];  // GGML_MAX_SRC
     struct ggml_tensor * parent;
     struct ggml_hash_set * view_hash;
     char   padding[8];
 };
 
 #define GGML_MAX_DIMS      4
-#define GGML_MAX_SRC       8
 #define GGML_MAX_NAME      64
 #define GGML_MAX_PARAMS    32
 #define GGML_MAX_NODES     4096
 #define GGML_MAX_GRAPH_SIZE 4096
-#define GGML_MAX_NThreads  GGML_N_THREADS_MAX
 
 // Compute graph
 struct ggml_cgraph {
