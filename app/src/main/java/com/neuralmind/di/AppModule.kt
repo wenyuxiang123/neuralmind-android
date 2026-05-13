@@ -12,6 +12,7 @@ import com.neuralmind.skills.SkillCallManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
@@ -52,7 +53,7 @@ object AppModule {
     fun provideModelDownloader(
         @ApplicationContext context: Context,
         networkManager: NetworkManager,
-        modelRepository: ModelRepository
+        modelRepository: Lazy<ModelRepository>
     ): ModelDownloader {
         return ModelDownloader(context, networkManager, modelRepository)
     }
