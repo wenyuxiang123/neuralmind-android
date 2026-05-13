@@ -1,7 +1,6 @@
 package com.neuralmind.data.repository
 
 import com.google.gson.Gson
-import com.google.gson.JsonObject
 import com.google.gson.JsonArray
 import com.neuralmind.data.local.db.dao.AutomationRuleDao
 import com.neuralmind.data.local.db.entity.AutomationRuleEntity
@@ -9,7 +8,6 @@ import com.neuralmind.device.DeviceController
 import com.neuralmind.domain.model.AutomationRule
 import com.neuralmind.domain.model.BluetoothAction
 import com.neuralmind.domain.model.BrightnessAction
-import com.neuralmind.domain.model.Condition
 import com.neuralmind.domain.model.DeviceAction
 import com.neuralmind.domain.model.DeviceStatus
 import com.neuralmind.domain.model.LaunchAppAction
@@ -161,7 +159,6 @@ class DeviceRepository @Inject constructor(
 
     private fun AutomationRuleEntity.toDomain(): AutomationRule {
         val triggers = parseTriggers(triggersJson)
-        val conditions = parseConditions(conditionsJson)
         val actions = parseActions(actionsJson)
         
         return AutomationRule(
@@ -169,7 +166,7 @@ class DeviceRepository @Inject constructor(
             name = name,
             description = description,
             triggers = triggers,
-            conditions = conditions,
+            conditions = emptyList(),
             actions = actions,
             isEnabled = isEnabled,
             lastTriggered = lastTriggered,
@@ -201,29 +198,6 @@ class DeviceRepository @Inject constructor(
                         radius = obj.get("radius")?.asFloat ?: 100f,
                         event = com.neuralmind.domain.model.LocationEvent.valueOf(
                             obj.get("event")?.asString ?: "ENTER"
-                        )
-                    )
-                    else -> null
-                }
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    private fun parseConditions(json: String): List<Condition> {
-        // 条件解析实现，根据实际需求扩展
-        return try {
-            val array = gson.fromJson(json, JsonArray::class.java) ?: return emptyList()
-            array.mapNotNull { element ->
-                val obj = element.asJsonObject
-                when (obj.get("type")?.asString) {
-                    "battery" -> com.neuralmind.domain.model.BatteryTrigger(
-                        id = obj.get("id")?.asString ?: "",
-                        name = obj.get("name")?.asString ?: "电量条件",
-                        threshold = obj.get("threshold")?.asInt ?: 20,
-                        event = com.neuralmind.domain.model.BatteryEvent.valueOf(
-                            obj.get("event")?.asString ?: "BELOW"
                         )
                     )
                     else -> null
