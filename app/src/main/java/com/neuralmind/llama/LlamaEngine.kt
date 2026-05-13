@@ -37,14 +37,31 @@ class LlamaEngine @Inject constructor(
     private val _inferenceConfig = MutableStateFlow(InferenceConfig())
     val inferenceConfig: StateFlow<InferenceConfig> = _inferenceConfig
 
-    init {
-        engineId = LlamaJNI.createEngine()
+    private var engineInitialized = false
+
+    /**
+     * Lazily initialize the engine. Called before any operation that needs engineId.
+     * Moved out of init{} to prevent crash during Hilt injection at app startup.
+     */
+    private fun ensureEngineInitialized() {
+        if (!engineInitialized) {
+            try {
+                engineId = LlamaJNI.createEngine()
+                engineInitialized = true
+            } catch (e: Exception) {
+                _isModelLoaded.value = false
+            } catch (e: UnsatisfiedLinkError) {
+                _isModelLoaded.value = false
+            }
+        }
     }
 
     suspend fun loadModel(modelId: String): Boolean {
         val modelPath = modelRepository.getModelPath(modelId)
         
         try {
+            ensureEngineInitialized()
+            if (!engineInitialized) return false
             val loaded = LlamaJNI.loadModel(engineId, modelPath ?: "default")
             _isModelLoaded.value = loaded
             if (loaded) {
@@ -91,6 +108,12 @@ class LlamaEngine @Inject constructor(
         _isGenerating.value = true
 
         try {
+            ensureEngineInitialized()
+            if (!engineInitialized) {
+                onError("推理引擎初始化失败")
+                _isGenerating.value = false
+                return@withContext
+            }
             // Set token callback for streaming
             LlamaJNI._tokenCallback = onToken
 
@@ -130,6 +153,11 @@ class LlamaEngine @Inject constructor(
         _isGenerating.value = true
 
         try {
+            ensureEngineInitialized()
+            if (!engineInitialized) {
+                _isGenerating.value = false
+                return getFallbackResponse(prompt, config)
+            }
             // Use streaming JNI method with flow emission
             LlamaJNI._tokenCallback = { token ->
                 // Emit token to flow from IO thread
