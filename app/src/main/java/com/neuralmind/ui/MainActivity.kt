@@ -4,19 +4,27 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.neuralmind.ui.components.DrawerContent
 import com.neuralmind.ui.navigation.AppNavigation
 import com.neuralmind.ui.navigation.Screen
-import com.neuralmind.ui.theme.NeuralMindTheme
+import com.neuralmind.ui.theme.*
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -24,7 +32,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            NeuralMindTheme {
+            NeuralMindTheme(darkTheme = true) {
                 NeuralMindApp()
             }
         }
@@ -37,56 +45,77 @@ fun NeuralMindApp() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
-    val bottomNavItems = listOf(
-        BottomNavItem("聊天", Icons.Default.Chat, Screen.ChatList.route),
-        BottomNavItem("模型", Icons.Default.Memory, Screen.ModelLibrary.route),
-        BottomNavItem("记忆", Icons.Default.Psychology, Screen.Memory.route),
-        BottomNavItem("技能", Icons.Default.Build, Screen.Skills.route),
-        BottomNavItem("控制", Icons.Default.Devices, Screen.DeviceControl.route)
+    val showDrawerRoutes = listOf(
+        Screen.ChatList.route, Screen.ModelLibrary.route, Screen.Memory.route,
+        Screen.Skills.route, Screen.DeviceControl.route, Screen.ToolkitStore.route
     )
+    val shouldShowDrawer = currentRoute in showDrawerRoutes
 
-    val showBottomBar = currentRoute in bottomNavItems.map { it.route }
-
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        bottomBar = {
-            if (showBottomBar) {
-                NavigationBar {
-                    bottomNavItems.forEach { item ->
-                        NavigationBarItem(
-                            icon = { Icon(item.icon, contentDescription = item.label) },
-                            label = { Text(item.label) },
-                            selected = currentRoute == item.route,
-                            onClick = {
-                                if (currentRoute != item.route) {
-                                    navController.navigate(item.route) {
-                                        popUpTo(Screen.ChatList.route) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            if (drawerState.isOpen) {
+                Box(modifier = Modifier.fillMaxHeight().width(280.dp)) {
+                    DrawerContent(
+                        currentRoute = currentRoute,
+                        onNavigate = { route ->
+                            navController.navigate(route) {
+                                popUpTo(Screen.ChatList.route) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                            GlobalScope.launch(Dispatchers.Main) { drawerState.close() }
+                        }
+                    )
+                }
+            }
+        },
+        gesturesEnabled = shouldShowDrawer
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = BackgroundPrimary,
+            topBar = {
+                if (shouldShowDrawer) {
+                    TopAppBar(
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Android, contentDescription = null, tint = GradientStart)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("NeuralMind AI", fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(shape = MaterialTheme.shapes.small, color = StatusOnline.copy(alpha = 0.2f)) {
+                                    Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(modifier = Modifier.size(8.dp).background(StatusOnline, MaterialTheme.shapes.small))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("在线", style = MaterialTheme.typography.labelSmall, color = StatusOnline)
                                     }
                                 }
                             }
-                        )
-                    }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { GlobalScope.launch(Dispatchers.Main) { drawerState.open() } }) {
+                                Icon(Icons.Default.Menu, contentDescription = "菜单", tint = TextPrimary)
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { navController.navigate(Screen.Memory.route) }) {
+                                Icon(Icons.Default.Psychology, contentDescription = "记忆", tint = GradientStart)
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = BackgroundPrimary)
+                    )
                 }
             }
-        }
-    ) { innerPadding ->
-        Surface(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            AppNavigation(navController = navController)
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier.fillMaxSize().padding(innerPadding)
+                    .background(brush = Brush.verticalGradient(colors = listOf(BackgroundPrimary, Color(0xFF0A1628), BackgroundPrimary)))
+            ) {
+                AppNavigation(navController = navController)
+            }
         }
     }
 }
-
-data class BottomNavItem(
-    val label: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
-    val route: String
-)
