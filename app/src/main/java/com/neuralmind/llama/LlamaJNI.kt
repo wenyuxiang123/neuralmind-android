@@ -12,6 +12,9 @@ class LlamaJNI {
                 e.printStackTrace()
             }
         }
+
+        // Token callback for streaming generation
+        internal var _tokenCallback: ((String) -> Unit)? = null
     }
 
     external fun createEngine(): Long
@@ -35,6 +38,19 @@ class LlamaJNI {
         stopSequence: String?
     ): String
 
+    // Streaming generation: returns complete response, but calls onToken for each token
+    // Parameters identical to generate(), but tokens are streamed via onToken callback
+    external fun generateStream(
+        engineId: Long,
+        prompt: String,
+        maxTokens: Int,
+        temperature: Float,
+        topP: Float,
+        topK: Int,
+        repeatPenalty: Float,
+        stopSequence: String?
+    ): String
+
     external fun stopGeneration(engineId: Long)
 
     external fun isGenerating(engineId: Long): Boolean
@@ -46,4 +62,9 @@ class LlamaJNI {
     external fun getParameter(engineId: Long, key: String): String
 
     external fun getSupportedModels(): Array<String>
+
+    // Called by C++ JNI layer for each generated token during streaming
+    fun onToken(token: String) {
+        _tokenCallback?.invoke(token)
+    }
 }
