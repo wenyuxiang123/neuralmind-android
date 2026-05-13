@@ -103,7 +103,7 @@ class ChatViewModel @Inject constructor(
             model = modelId
         )
 
-        val detectedSkills = skillCallManager.detectSkillsFromUserInput(userInput)
+        val detectedSkills = skillCallManager.detectSkillsFromInput(userInput)
         
         if (detectedSkills.isNotEmpty()) {
             val skillResults = skillCallManager.callDetectedSkills(userInput)

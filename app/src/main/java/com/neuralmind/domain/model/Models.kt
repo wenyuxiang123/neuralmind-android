@@ -232,3 +232,19 @@ enum class ToolCategory {
     PERFORMANCE,
     LOG_VIEWER
 }
+
+data class DeviceStatus(
+    val wifiEnabled: Boolean,
+    val bluetoothEnabled: Boolean,
+    val batteryLevel: Int,
+    val isCharging: Boolean,
+    val brightness: Int,
+    val mediaVolume: Int,
+    val ringVolume: Int,
+    val deviceModel: String,
+    val androidVersion: String,
+    val totalMemory: Long,
+    val availableMemory: Long,
+    val totalStorage: Long,
+    val availableStorage: Long
+)

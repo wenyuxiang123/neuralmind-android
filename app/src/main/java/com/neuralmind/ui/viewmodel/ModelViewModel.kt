@@ -36,14 +36,19 @@ class ModelViewModel @Inject constructor(
 
     fun downloadModel(modelId: String) {
         viewModelScope.launch {
-            modelRepository.downloadModel(modelId).collect { progress ->
-                _uiState.update {
-                    it.copy(
-                        downloadingModelId = modelId,
-                        downloadProgress = progress
-                    )
+            _uiState.update { it.copy(downloadingModelId = modelId, downloadProgress = 0f) }
+            
+            modelRepository.downloadModel(modelId)
+                .onSuccess { file ->
+                    _uiState.update { 
+                        it.copy(downloadingModelId = null, downloadProgress = 1f) 
+                    }
                 }
-            }
+                .onFailure { error ->
+                    _uiState.update { 
+                        it.copy(downloadingModelId = null, downloadProgress = 0f) 
+                    }
+                }
         }
     }
 

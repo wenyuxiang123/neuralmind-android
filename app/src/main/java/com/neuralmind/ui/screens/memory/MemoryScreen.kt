@@ -46,7 +46,7 @@ fun MemoryScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                MemoryLayer.values().forEach { layer ->
+                MemoryLayer.entries.forEach { layer ->
                     item {
                         MemoryLayerCard(
                             layer = layer,

@@ -101,7 +101,7 @@ class MemoryRepository @Inject constructor(
 
         activateMemoryLayer(MemoryLayer.L1_WORKING)
         activateMemoryLayer(MemoryLayer.L2_SHORT_TERM)
-        activateMemoryLayer(MemoryLayer.L3_CONVERSATION)
+        activateMemoryLayer(MemoryLayer.L3_SESSION)
     }
 
     suspend fun insertDefaultMemories() {

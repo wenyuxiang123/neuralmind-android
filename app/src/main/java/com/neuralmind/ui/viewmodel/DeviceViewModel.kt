@@ -83,9 +83,30 @@ class DeviceViewModel @Inject constructor(
     }
 
     fun toggleRule(ruleId: String) {
+        viewModelScope.launch {
+            try {
+                val rule = automationRules.find { it.id == ruleId }
+                if (rule != null) {
+                    if (rule.isEnabled) {
+                        deviceRepository.disableRule(ruleId)
+                    } else {
+                        deviceRepository.enableRule(ruleId)
+                    }
+                }
+            } catch (e: Exception) {
+                // 处理错误
+            }
+        }
     }
 
     fun deleteRule(ruleId: String) {
+        viewModelScope.launch {
+            try {
+                deviceRepository.deleteRule(ruleId)
+            } catch (e: Exception) {
+                // 处理错误
+            }
+        }
     }
 }
 

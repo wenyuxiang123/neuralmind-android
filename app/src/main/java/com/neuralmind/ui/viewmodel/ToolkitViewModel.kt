@@ -32,15 +32,42 @@ class ToolkitViewModel @Inject constructor(
 
     fun downloadTool(toolId: String) {
         viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            try {
+                toolkitRepository.installTool(toolId)
+            } catch (e: Exception) {
+                // 处理错误
+            } finally {
+                _uiState.update { it.copy(isLoading = false) }
+            }
         }
     }
 
     fun deleteTool(toolId: String) {
         viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            try {
+                toolkitRepository.uninstallTool(toolId)
+            } catch (e: Exception) {
+                // 处理错误
+            } finally {
+                _uiState.update { it.copy(isLoading = false) }
+            }
         }
     }
 
     fun launchTool(tool: ToolModule) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            try {
+                // 工具启动逻辑
+                // TODO: 实现具体的工具启动逻辑
+            } catch (e: Exception) {
+                // 处理错误
+            } finally {
+                _uiState.update { it.copy(isLoading = false) }
+            }
+        }
     }
 }
 

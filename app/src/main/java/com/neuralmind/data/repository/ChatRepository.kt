@@ -81,6 +81,11 @@ class ChatRepository @Inject constructor(
         messageDao.delete(message.toEntity())
     }
 
+    suspend fun insertDefaultData() {
+        // 默认数据为空，因为初始对话由用户手动创建
+        // 如果需要创建默认欢迎对话，可以在这里添加
+    }
+
     private fun ConversationEntity.toDomain() = Conversation(
         id = id,
         title = title,

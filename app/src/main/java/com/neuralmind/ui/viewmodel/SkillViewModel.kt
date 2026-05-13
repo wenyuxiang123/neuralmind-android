@@ -32,15 +32,38 @@ class SkillViewModel @Inject constructor(
 
     fun installSkill(skillId: String) {
         viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            try {
+                skillRepository.installSkill(skillId)
+            } catch (e: Exception) {
+                // 处理错误
+            } finally {
+                _uiState.update { it.copy(isLoading = false) }
+            }
         }
     }
 
     fun uninstallSkill(skillId: String) {
         viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            try {
+                skillRepository.uninstallSkill(skillId)
+            } catch (e: Exception) {
+                // 处理错误
+            } finally {
+                _uiState.update { it.copy(isLoading = false) }
+            }
         }
     }
 
     fun launchSkill(skill: Skill) {
+        viewModelScope.launch {
+            try {
+                skillRepository.executeSkill(skill.id, emptyMap())
+            } catch (e: Exception) {
+                // 处理错误
+            }
+        }
     }
 }
 
