@@ -17,7 +17,8 @@ import javax.inject.Singleton
 @Singleton
 class LlamaEngine @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val modelRepository: ModelRepository
+    private val modelRepository: ModelRepository,
+    private val llamaJNI: LlamaJNI
 ) {
     private var engineId: Long = 0
 
@@ -95,7 +96,7 @@ class LlamaEngine @Inject constructor(
 
             // Use streaming JNI method
             val response = try {
-                LlamaJNI.generateStream(
+                llamaJNI.generateStream(
                     engineId,
                     prompt,
                     config.maxTokens,
@@ -138,7 +139,7 @@ class LlamaEngine @Inject constructor(
             }
 
             val response = try {
-                LlamaJNI.generateStream(
+                llamaJNI.generateStream(
                     engineId,
                     prompt,
                     config.maxTokens,
