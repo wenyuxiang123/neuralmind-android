@@ -8,7 +8,6 @@ import com.neuralmind.device.DeviceController
 import com.neuralmind.network.NetworkManager
 import com.neuralmind.network.ModelDownloader
 import com.neuralmind.skills.SkillExecutor
-import com.neuralmind.skills.SkillCallManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -20,13 +19,13 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
-
+    
     @Provides
     @Singleton
     fun provideLlamaJNI(): LlamaJNI {
         return LlamaJNI()
     }
-
+    
     @Provides
     @Singleton
     fun provideLlamaEngine(
@@ -36,19 +35,19 @@ object AppModule {
     ): LlamaEngine {
         return LlamaEngine(context, modelRepository, llamaJNI)
     }
-
+    
     @Provides
     @Singleton
     fun provideDeviceController(@ApplicationContext context: Context): DeviceController {
         return DeviceController(context)
     }
-
+    
     @Provides
     @Singleton
     fun provideNetworkManager(): NetworkManager {
         return NetworkManager()
     }
-
+    
     @Provides
     @Singleton
     fun provideModelDownloader(
@@ -58,22 +57,13 @@ object AppModule {
     ): ModelDownloader {
         return ModelDownloader(context, networkManager, modelRepository)
     }
-
+    
     @Provides
     @Singleton
     fun provideSkillExecutor(@ApplicationContext context: Context): SkillExecutor {
         return SkillExecutor(context)
     }
-
-    @Provides
-    @Singleton
-    fun provideSkillCallManager(
-        skillRepository: SkillRepository,
-        skillExecutor: SkillExecutor
-    ): SkillCallManager {
-        return SkillCallManager(skillRepository, skillExecutor)
-    }
-
+    
     @Provides
     fun provideChatRepository(
         conversationDao: com.neuralmind.data.local.db.dao.ConversationDao,
@@ -81,7 +71,7 @@ object AppModule {
     ): ChatRepository {
         return ChatRepository(conversationDao, messageDao)
     }
-
+    
     @Provides
     fun provideModelRepository(
         modelDao: com.neuralmind.data.local.db.dao.ModelDao,
@@ -90,22 +80,21 @@ object AppModule {
     ): ModelRepository {
         return ModelRepository(modelDao, context, modelDownloader)
     }
-
+    
     @Provides
     fun provideMemoryRepository(
         memoryDao: com.neuralmind.data.local.db.dao.MemoryDao
     ): MemoryRepository {
         return MemoryRepository(memoryDao)
     }
-
+    
     @Provides
     fun provideSkillRepository(
-        skillDao: com.neuralmind.data.local.db.dao.SkillDao,
-        skillExecutor: SkillExecutor
+        skillDao: com.neuralmind.data.local.db.dao.SkillDao
     ): SkillRepository {
-        return SkillRepository(skillDao, skillExecutor)
+        return SkillRepository(skillDao)
     }
-
+    
     @Provides
     fun provideDeviceRepository(
         deviceController: DeviceController,
@@ -114,7 +103,7 @@ object AppModule {
     ): DeviceRepository {
         return DeviceRepository(deviceController, automationRuleDao, context)
     }
-
+    
     @Provides
     fun provideToolkitRepository(
         toolModuleDao: com.neuralmind.data.local.db.dao.ToolModuleDao,
