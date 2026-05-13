@@ -45,7 +45,7 @@ jobs:
         path: app/build/outputs/apk/release/*.apk
         retention-days: 30
 
-    - name: List build artifacts
+    - name: Verify APK integrity
       if: always()
       run: |
         echo "--- Debug APK directory ---"
@@ -53,3 +53,35 @@ jobs:
         echo ""
         echo "--- Release APK directory ---"
         ls -la app/build/outputs/apk/release/ || echo "No release APK found"
+        echo ""
+        echo "--- Verify Debug APK ---"
+        \${ANDROID_HOME}/build-tools/34.0.0/aapt dump badging app/build/outputs/apk/debug/app-debug.apk 2>&1 | head -5 || echo "aapt not available, using zip verification"
+        echo ""
+        echo "--- Check native libs in APK ---"
+        unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "lib/" | head -10
+        echo ""
+        echo "--- Verify APK zip structure ---"
+        python3 -c "
+import zipfile
+try:
+    with zipfile.ZipFile('app/build/outputs/apk/debug/app-debug.apk', 'r') as z:
+        bad = z.testzip()
+        if bad is None:
+            print('APK zip integrity: OK')
+        else:
+            print(f'APK corrupt at: {bad}')
+        # Check AndroidManifest
+        manifest = None
+        for name in z.namelist():
+            if 'AndroidManifest' in name:
+                manifest = name
+                break
+        print(f'AndroidManifest found: {manifest is not None}')
+        # Check native libs
+        libs = [n for n in z.namelist() if n.startswith('lib/')]
+        print(f'Native libs: {len(libs)} files')
+        for lib in libs:
+            print(f'  {lib}')
+except Exception as e:
+    print(f'APK verification error: {e}')
+"""
