@@ -31,9 +31,10 @@ object AppModule {
     @Singleton
     fun provideLlamaEngine(
         @ApplicationContext context: Context,
-        modelRepository: ModelRepository
+        modelRepository: ModelRepository,
+        llamaJNI: LlamaJNI
     ): LlamaEngine {
-        return LlamaEngine(context, modelRepository)
+        return LlamaEngine(context, modelRepository, llamaJNI)
     }
 
     @Provides
