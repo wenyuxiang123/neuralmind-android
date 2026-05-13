@@ -1,5 +1,10 @@
 package com.neuralmind.di
 
+import com.neuralmind.data.repository.ChatRepository
+import com.neuralmind.data.repository.DeviceRepository
+import com.neuralmind.data.repository.MemoryRepository
+import com.neuralmind.data.repository.ModelRepository
+import com.neuralmind.data.repository.SkillRepository
 import com.neuralmind.domain.usecase.chat.*
 import com.neuralmind.domain.usecase.model.*
 import com.neuralmind.domain.usecase.memory.*
