@@ -4,8 +4,13 @@ import com.neuralmind.data.local.db.dao.AutomationRuleDao
 import com.neuralmind.data.local.db.entity.AutomationRuleEntity
 import com.neuralmind.device.DeviceController
 import com.neuralmind.domain.model.AutomationRule
+import com.neuralmind.domain.model.BluetoothAction
+import com.neuralmind.domain.model.BrightnessAction
 import com.neuralmind.domain.model.DeviceAction
 import com.neuralmind.domain.model.DeviceStatus
+import com.neuralmind.domain.model.LaunchAppAction
+import com.neuralmind.domain.model.VolumeAction
+import com.neuralmind.domain.model.WifiAction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -42,11 +47,11 @@ class DeviceRepository @Inject constructor(
 
     suspend fun executeAction(action: DeviceAction) = withContext(Dispatchers.IO) {
         when (action) {
-            is DeviceAction.WifiAction -> deviceController.setWifiEnabled(action.enable)
-            is DeviceAction.BluetoothAction -> deviceController.setBluetoothEnabled(action.enable)
-            is DeviceAction.BrightnessAction -> deviceController.setBrightness(action.level)
-            is DeviceAction.VolumeAction -> deviceController.setVolume(action.stream, action.level)
-            is DeviceAction.LaunchAppAction -> deviceController.launchApp(action.packageName)
+            is WifiAction -> deviceController.setWifiEnabled(action.enable)
+            is BluetoothAction -> deviceController.setBluetoothEnabled(action.enable)
+            is BrightnessAction -> deviceController.setBrightness(action.level)
+            is VolumeAction -> deviceController.setVolume(action.stream, action.level)
+            is LaunchAppAction -> deviceController.launchApp(action.packageName)
             else -> {}
         }
     }
