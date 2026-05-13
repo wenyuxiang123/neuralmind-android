@@ -13,6 +13,7 @@ import com.neuralmind.domain.model.DeviceStatus
 import com.neuralmind.domain.model.LaunchAppAction
 import com.neuralmind.domain.model.LocationTrigger
 import com.neuralmind.domain.model.TimeTrigger
+import com.neuralmind.domain.model.SendSmsAction
 import com.neuralmind.domain.model.VolumeAction
 import com.neuralmind.domain.model.WifiAction
 import dagger.hilt.android.qualifiers.ApplicationContext
