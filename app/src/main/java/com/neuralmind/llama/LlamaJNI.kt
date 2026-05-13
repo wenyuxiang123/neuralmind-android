@@ -15,53 +15,66 @@ class LlamaJNI {
 
         // Token callback for streaming generation
         internal var _tokenCallback: ((String) -> Unit)? = null
+
+        @JvmStatic
+        external fun createEngine(): Long
+
+        @JvmStatic
+        external fun destroyEngine(engineId: Long)
+
+        @JvmStatic
+        external fun loadModel(engineId: Long, modelPath: String): Boolean
+
+        @JvmStatic
+        external fun unloadModel(engineId: Long)
+
+        @JvmStatic
+        external fun isModelLoaded(engineId: Long): Boolean
+
+        @JvmStatic
+        external fun generate(
+            engineId: Long,
+            prompt: String,
+            maxTokens: Int,
+            temperature: Float,
+            topP: Float,
+            topK: Int,
+            repeatPenalty: Float,
+            stopSequence: String?
+        ): String
+
+        // Streaming generation: returns complete response, but calls onToken for each token
+        // Parameters identical to generate(), but tokens are streamed via onToken callback
+        @JvmStatic
+        external fun generateStream(
+            engineId: Long,
+            prompt: String,
+            maxTokens: Int,
+            temperature: Float,
+            topP: Float,
+            topK: Int,
+            repeatPenalty: Float,
+            stopSequence: String?
+        ): String
+
+        @JvmStatic
+        external fun stopGeneration(engineId: Long)
+
+        @JvmStatic
+        external fun isGenerating(engineId: Long): Boolean
+
+        @JvmStatic
+        external fun getModelInfo(engineId: Long): String
+
+        @JvmStatic
+        external fun setParameter(engineId: Long, key: String, value: String)
+
+        @JvmStatic
+        external fun getParameter(engineId: Long, key: String): String
+
+        @JvmStatic
+        external fun getSupportedModels(): Array<String>
     }
-
-    external fun createEngine(): Long
-
-    external fun destroyEngine(engineId: Long)
-
-    external fun loadModel(engineId: Long, modelPath: String): Boolean
-
-    external fun unloadModel(engineId: Long)
-
-    external fun isModelLoaded(engineId: Long): Boolean
-
-    external fun generate(
-        engineId: Long,
-        prompt: String,
-        maxTokens: Int,
-        temperature: Float,
-        topP: Float,
-        topK: Int,
-        repeatPenalty: Float,
-        stopSequence: String?
-    ): String
-
-    // Streaming generation: returns complete response, but calls onToken for each token
-    // Parameters identical to generate(), but tokens are streamed via onToken callback
-    external fun generateStream(
-        engineId: Long,
-        prompt: String,
-        maxTokens: Int,
-        temperature: Float,
-        topP: Float,
-        topK: Int,
-        repeatPenalty: Float,
-        stopSequence: String?
-    ): String
-
-    external fun stopGeneration(engineId: Long)
-
-    external fun isGenerating(engineId: Long): Boolean
-
-    external fun getModelInfo(engineId: Long): String
-
-    external fun setParameter(engineId: Long, key: String, value: String)
-
-    external fun getParameter(engineId: Long, key: String): String
-
-    external fun getSupportedModels(): Array<String>
 
     // Called by C++ JNI layer for each generated token during streaming
     fun onToken(token: String) {
