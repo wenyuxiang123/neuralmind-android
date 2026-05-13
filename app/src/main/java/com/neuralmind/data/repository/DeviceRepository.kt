@@ -58,7 +58,31 @@ class DeviceRepository @Inject constructor(
             is BrightnessAction -> deviceController.setBrightness(action.level)
             is VolumeAction -> deviceController.setVolume(action.stream, action.level)
             is LaunchAppAction -> deviceController.launchApp(action.packageName)
-            else -> {}
+            is SendSmsAction -> sendSms(action.phoneNumber, action.message)
+            else -> {
+                // Log unhandled action types for future implementation
+                android.util.Log.w("DeviceRepository", "Unhandled action type: ${action::class.simpleName}")
+            }
+        }
+    }
+
+    /**
+     * Send SMS using Android SmsManager.
+     * Requires android.permission.SEND_SMS permission.
+     */
+    @Suppress("DEPRECATION")
+    private suspend fun sendSms(phoneNumber: String, message: String) {
+        try {
+            val smsManager = android.telephony.SmsManager.getDefault()
+            val parts = smsManager.divideMessage(message)
+            if (parts.size == 1) {
+                smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+            } else {
+                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+            }
+            android.util.Log.d("DeviceRepository", "SMS sent to $phoneNumber")
+        } catch (e: Exception) {
+            android.util.Log.e("DeviceRepository", "Failed to send SMS: ${e.message}")
         }
     }
 
