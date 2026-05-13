@@ -52,7 +52,11 @@ class ModelDownloader @Inject constructor(
         val targetFile = getModelPath(modelId)
         
         try {
-            val result = networkManager.downloadFile(downloadUrl, targetFile) { downloaded, total ->
+            val result = networkManager.downloadFile(
+                url = downloadUrl,
+                targetFile = targetFile,
+                downloadId = "model_$modelId"
+            ) { downloaded, total ->
                 val progress = if (total > 0) {
                     downloaded.toFloat() / total.toFloat()
                 } else {
@@ -82,15 +86,21 @@ class ModelDownloader @Inject constructor(
 
             result
         } catch (e: Exception) {
-            // 下载失败，清理文件
-            if (targetFile.exists()) {
+            // 如果是取消导致的异常，不要删除部分文件（方便续传）
+            val isCancelled = e is java.io.IOException && e.message?.contains("cancelled", ignoreCase = true) == true
+            
+            if (!isCancelled && targetFile.exists()) {
                 targetFile.delete()
             }
             
             // 更新状态
             updateState(modelId, DownloadState(
                 isDownloading = false,
-                error = e.message ?: "Unknown error"
+                error = if (isCancelled) null else (e.message ?: "Unknown error"),
+                // 如果是取消，保留当前进度
+                progress = if (isCancelled) _downloadStates.value[modelId]?.progress ?: 0f else 0f,
+                downloadedBytes = if (isCancelled) _downloadStates.value[modelId]?.downloadedBytes ?: 0L else 0L,
+                totalBytes = if (isCancelled) _downloadStates.value[modelId]?.totalBytes ?: 0L else 0L
             ))
 
             Result.failure(e)
@@ -98,8 +108,8 @@ class ModelDownloader @Inject constructor(
     }
 
     fun cancelDownload(modelId: String) {
+        networkManager.cancelDownload("model_$modelId")
         updateState(modelId, DownloadState(isDownloading = false))
-        // 注意：真实的下载取消需要额外的实现
     }
 
     fun deleteModel(modelId: String): Boolean {
