@@ -1,7 +1,7 @@
 package com.neuralmind
 
 import android.app.Application
-import android.util.Log
+import com.neuralmind.core.Logger
 import com.neuralmind.data.repository.ChatRepository
 import com.neuralmind.data.repository.ModelRepository
 import com.neuralmind.data.repository.MemoryRepository
@@ -17,82 +17,87 @@ import javax.inject.Inject
 
 @HiltAndroidApp
 class NeuralMindApp : Application() {
+    
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
+    
     @Inject
     lateinit var chatRepository: ChatRepository
-
+    
     @Inject
     lateinit var modelRepository: ModelRepository
-
+    
     @Inject
     lateinit var memoryRepository: MemoryRepository
-
+    
     @Inject
     lateinit var skillRepository: SkillRepository
-
+    
     @Inject
     lateinit var deviceRepository: DeviceRepository
-
+    
     @Inject
     lateinit var toolkitRepository: ToolkitRepository
-
+    
     override fun onCreate() {
         super.onCreate()
-        Log.d("NeuralMindApp", "Application onCreate")
+        
+        // 初始化 Logger
+        Logger.init(this)
+        Logger.d(Logger.Tags.ENGINE, "Application onCreate")
+        Logger.d(Logger.Tags.ENGINE, "Log directory: ${Logger.getLogDirPath() ?: "not available"}")
         
         // 初始化默认数据
         initializeDefaultData()
     }
-
+    
     private fun initializeDefaultData() {
         applicationScope.launch {
-            Log.d("NeuralMindApp", "Initializing default data...")
+            Logger.d(Logger.Tags.ENGINE, "Initializing default data...")
             
             // 初始化所有 Repository 的默认数据，每个独立 try-catch
             try {
                 modelRepository.insertDefaultModels()
-                Log.d("NeuralMindApp", "ModelRepository initialized")
+                Logger.d(Logger.Tags.REPO, "ModelRepository initialized")
             } catch (e: Exception) {
-                Log.e("NeuralMindApp", "Error initializing ModelRepository", e)
+                Logger.e(Logger.Tags.REPO, "Error initializing ModelRepository", e)
             }
             
             try {
                 memoryRepository.insertDefaultMemories()
-                Log.d("NeuralMindApp", "MemoryRepository initialized")
+                Logger.d(Logger.Tags.REPO, "MemoryRepository initialized")
             } catch (e: Exception) {
-                Log.e("NeuralMindApp", "Error initializing MemoryRepository", e)
+                Logger.e(Logger.Tags.REPO, "Error initializing MemoryRepository", e)
             }
             
             try {
                 skillRepository.insertDefaultSkills()
-                Log.d("NeuralMindApp", "SkillRepository initialized")
+                Logger.d(Logger.Tags.REPO, "SkillRepository initialized")
             } catch (e: Exception) {
-                Log.e("NeuralMindApp", "Error initializing SkillRepository", e)
+                Logger.e(Logger.Tags.REPO, "Error initializing SkillRepository", e)
             }
             
             try {
                 deviceRepository.insertDefaultRules()
-                Log.d("NeuralMindApp", "DeviceRepository initialized")
+                Logger.d(Logger.Tags.REPO, "DeviceRepository initialized")
             } catch (e: Exception) {
-                Log.e("NeuralMindApp", "Error initializing DeviceRepository", e)
+                Logger.e(Logger.Tags.REPO, "Error initializing DeviceRepository", e)
             }
             
             try {
                 toolkitRepository.insertDefaultTools()
-                Log.d("NeuralMindApp", "ToolkitRepository initialized")
+                Logger.d(Logger.Tags.REPO, "ToolkitRepository initialized")
             } catch (e: Exception) {
-                Log.e("NeuralMindApp", "Error initializing ToolkitRepository", e)
+                Logger.e(Logger.Tags.REPO, "Error initializing ToolkitRepository", e)
             }
             
             try {
                 chatRepository.insertDefaultData()
-                Log.d("NeuralMindApp", "ChatRepository initialized")
+                Logger.d(Logger.Tags.REPO, "ChatRepository initialized")
             } catch (e: Exception) {
-                Log.e("NeuralMindApp", "Error initializing ChatRepository", e)
+                Logger.e(Logger.Tags.REPO, "Error initializing ChatRepository", e)
             }
             
-            Log.d("NeuralMindApp", "Default data initialization completed")
+            Logger.d(Logger.Tags.ENGINE, "Default data initialization completed")
         }
     }
 }
