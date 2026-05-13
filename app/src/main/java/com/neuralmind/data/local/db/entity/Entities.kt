@@ -73,15 +73,20 @@ data class SkillEntity(
     val id: String,
     val name: String,
     val description: String,
+    val detailedDescription: String = "",
     val icon: String,
     val category: String,
     val version: String,
     val author: String,
-    val permissions: String,
+    val permissions: String = "[]",
     val isInstalled: Boolean = false,
     val isBuiltIn: Boolean = true,
     val downloadUrl: String? = null,
-    val installedSize: Long = 0
+    val installedSize: Long = 0,
+    val systemPrompt: String = "",
+    val scenarios: String = "",
+    val isActive: Boolean = false,
+    val isAvailable: Boolean = true
 )
 
 @Entity(tableName = "automation_rules")
