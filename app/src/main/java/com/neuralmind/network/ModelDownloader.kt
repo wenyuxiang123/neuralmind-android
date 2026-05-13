@@ -12,12 +12,13 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import dagger.Lazy
 
 @Singleton
 class ModelDownloader @Inject constructor(
     @ApplicationContext private val context: Context,
     private val networkManager: NetworkManager,
-    private val modelRepository: ModelRepository
+    private val modelRepository: Lazy<ModelRepository>
 ) {
     private val scope = CoroutineScope(Dispatchers.IO)
 
@@ -76,7 +77,7 @@ class ModelDownloader @Inject constructor(
                 ))
                 
                 // 更新模型状态
-                modelRepository.updateModelDownloaded(modelId, targetFile.absolutePath)
+                modelRepository.get().updateModelDownloaded(modelId, targetFile.absolutePath)
             }
 
             result
