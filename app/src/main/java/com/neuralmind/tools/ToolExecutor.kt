@@ -11,11 +11,47 @@ import java.io.InputStreamReader
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Allowed commands whitelist for security.
+ * Only commands in this list can be executed via executeCommand().
+ */
+private val ALLOWED_COMMANDS = setOf(
+    "ls", "cat", "echo", "date", "whoami", "pwd", "df", "free", "uptime",
+    "head", "tail", "grep", "find", "wc", "sort", "uniq"
+)
+
 @Singleton
 class ToolExecutor @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    /**
+     * Execute a whitelisted shell command.
+     * Only safe, read-only commands are allowed.
+     * @param command The command to execute (will be validated against whitelist)
+     * @return CommandResult with output, error, and exit code
+     */
     suspend fun executeCommand(command: String): CommandResult = withContext(Dispatchers.IO) {
+        val parts = command.trim().split("\s+".toRegex())
+        val baseCommand = parts.firstOrNull() ?: ""
+        
+        if (baseCommand.isEmpty()) {
+            return@withContext CommandResult(
+                output = "",
+                error = "Empty command",
+                exitCode = -1,
+                isSuccess = false
+            )
+        }
+        
+        if (baseCommand !in ALLOWED_COMMANDS) {
+            return@withContext CommandResult(
+                output = "",
+                error = "Command not allowed: $baseCommand. Only whitelisted commands can be executed.",
+                exitCode = -1,
+                isSuccess = false
+            )
+        }
+        
         try {
             val process = Runtime.getRuntime().exec(command)
             val output = BufferedReader(InputStreamReader(process.inputStream)).readText()
@@ -93,7 +129,7 @@ class ToolExecutor @Inject constructor(
             val addProcess = Runtime.getRuntime().exec("git add .", null, File(repoPath))
             addProcess.waitFor()
             
-            val commitProcess = Runtime.getRuntime().exec("git commit -m \"$message\"", null, File(repoPath))
+            val commitProcess = Runtime.getRuntime().exec(arrayOf("git", "commit", "-m", message), null, File(repoPath))
             commitProcess.waitFor() == 0
         } catch (e: Exception) {
             false
