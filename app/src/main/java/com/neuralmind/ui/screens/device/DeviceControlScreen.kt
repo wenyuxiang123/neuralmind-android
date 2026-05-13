@@ -180,6 +180,7 @@ fun QuickControlsCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ControlButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,

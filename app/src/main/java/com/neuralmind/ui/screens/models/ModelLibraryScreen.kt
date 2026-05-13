@@ -121,7 +121,7 @@ fun ModelCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        onClick = if (isInstalled) onSelect else null,
+        onClick = if (isInstalled) onSelect else {},
         colors = CardDefaults.cardColors(
             containerColor = if (isInstalled) {
                 MaterialTheme.colorScheme.primaryContainer

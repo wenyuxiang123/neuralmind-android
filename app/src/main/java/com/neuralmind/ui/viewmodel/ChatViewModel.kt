@@ -126,7 +126,7 @@ class ChatViewModel @Inject constructor(
 
         var tempResponse = ""
         
-        val modelLoaded = modelRepository.getCurrentModel().value?.let { model ->
+        val modelLoaded = modelRepository.currentModel.value?.let { model ->
             llamaEngine.loadModel(model.id)
         } ?: false
 

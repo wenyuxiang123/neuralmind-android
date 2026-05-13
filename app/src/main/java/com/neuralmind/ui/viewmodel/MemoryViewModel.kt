@@ -44,12 +44,13 @@ class MemoryViewModel @Inject constructor(
 
     fun addMemory(content: String, category: String, importance: Int, layer: MemoryLayer) {
         viewModelScope.launch {
-            memoryRepository.addMemory(
+            val memory = Memory(
                 layer = layer,
                 content = content,
                 category = category,
                 importance = importance
             )
+            memoryRepository.addMemory(memory)
         }
     }
 

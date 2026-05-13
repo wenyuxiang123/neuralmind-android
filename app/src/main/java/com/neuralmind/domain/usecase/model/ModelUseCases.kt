@@ -32,7 +32,7 @@ class SwitchModelUseCase @Inject constructor(
 class GetCurrentModelUseCase @Inject constructor(
     private val repository: ModelRepository
 ) {
-    operator fun invoke() = repository.getCurrentModel()
+    operator fun invoke() = repository.currentModel
 }
 
 class DeleteModelUseCase @Inject constructor(

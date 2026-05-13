@@ -3,9 +3,11 @@ package com.neuralmind.network
 import android.content.Context
 import com.neuralmind.data.repository.ModelRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
@@ -17,6 +19,7 @@ class ModelDownloader @Inject constructor(
     private val networkManager: NetworkManager,
     private val modelRepository: ModelRepository
 ) {
+    private val scope = CoroutineScope(Dispatchers.IO)
 
     data class DownloadState(
         val isDownloading: Boolean = false,
@@ -102,7 +105,9 @@ class ModelDownloader @Inject constructor(
         val file = getModelPath(modelId)
         return if (file.exists()) {
             file.delete()
-            modelRepository.updateModelDeleted(modelId)
+            scope.launch {
+                modelRepository.updateModelDeleted(modelId)
+            }
             _downloadStates.value = _downloadStates.value - modelId
             true
         } else {

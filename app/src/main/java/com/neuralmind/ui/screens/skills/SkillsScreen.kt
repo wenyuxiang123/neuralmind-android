@@ -90,7 +90,7 @@ fun SkillCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        onClick = if (isInstalled) onLaunch else null,
+        onClick = if (isInstalled) onLaunch else {},
         colors = CardDefaults.cardColors()
     ) {
         Column(

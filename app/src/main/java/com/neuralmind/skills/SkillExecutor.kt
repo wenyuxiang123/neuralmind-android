@@ -314,12 +314,12 @@ class SkillExecutor @Inject constructor(
                 """),
                 CodeSnippet("Function", """
                     fun greet(name: String): String {
-                        return "Hello, $name!"
+                        return "Hello, ${'$'}name!"
                     }
                 """),
                 CodeSnippet("Class", """
                     class Person(val name: String, val age: Int) {
-                        fun greet(): String = "Hello, $name"
+                        fun greet(): String = "Hello, ${'$'}name"
                     }
                 """)
             )

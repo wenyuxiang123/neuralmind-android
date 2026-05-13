@@ -98,17 +98,19 @@ object AppModule {
 
     @Provides
     fun provideSkillRepository(
-        skillDao: com.neuralmind.data.local.db.dao.SkillDao
+        skillDao: com.neuralmind.data.local.db.dao.SkillDao,
+        skillExecutor: SkillExecutor
     ): SkillRepository {
-        return SkillRepository(skillDao)
+        return SkillRepository(skillDao, skillExecutor)
     }
 
     @Provides
     fun provideDeviceRepository(
         deviceController: DeviceController,
-        automationRuleDao: com.neuralmind.data.local.db.dao.AutomationRuleDao
+        automationRuleDao: com.neuralmind.data.local.db.dao.AutomationRuleDao,
+        @ApplicationContext context: android.content.Context
     ): DeviceRepository {
-        return DeviceRepository(deviceController, automationRuleDao)
+        return DeviceRepository(deviceController, automationRuleDao, context)
     }
 
     @Provides

@@ -42,18 +42,10 @@ class DeviceRepository @Inject constructor(
 
     suspend fun executeAction(action: DeviceAction) = withContext(Dispatchers.IO) {
         when (action) {
-            is DeviceAction.WifiAction -> deviceController.setWifiEnabled(action.enabled)
-            is DeviceAction.BluetoothAction -> deviceController.setBluetoothEnabled(action.enabled)
+            is DeviceAction.WifiAction -> deviceController.setWifiEnabled(action.enable)
+            is DeviceAction.BluetoothAction -> deviceController.setBluetoothEnabled(action.enable)
             is DeviceAction.BrightnessAction -> deviceController.setBrightness(action.level)
-            is DeviceAction.VolumeAction -> {
-                val stream = when (action.stream) {
-                    com.neuralmind.domain.model.AudioStream.MEDIA -> com.neuralmind.device.AudioStream.MEDIA
-                    com.neuralmind.domain.model.AudioStream.RING -> com.neuralmind.device.AudioStream.RING
-                    com.neuralmind.domain.model.AudioStream.ALARM -> com.neuralmind.device.AudioStream.ALARM
-                    com.neuralmind.domain.model.AudioStream.NOTIFICATION -> com.neuralmind.device.AudioStream.NOTIFICATION
-                }
-                deviceController.setVolume(stream, action.level)
-            }
+            is DeviceAction.VolumeAction -> deviceController.setVolume(action.stream, action.level)
             is DeviceAction.LaunchAppAction -> deviceController.launchApp(action.packageName)
             else -> {}
         }
