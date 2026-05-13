@@ -513,7 +513,7 @@ class SkillRepository @Inject constructor(
         val permissionsList = try {
             permissions.removeSurrounding("[", "]")
                 .split(",")
-                .map { it.trim().removeSurrounding(""") }
+                .map { it.trim().removeSurrounding("\"") }
                 .filter { it.isNotBlank() }
         } catch (e: Exception) {
             emptyList()
