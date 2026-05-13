@@ -84,11 +84,10 @@ class MemoryRepository @Inject constructor(
     }
 
     suspend fun activateMemoryLayer(layer: MemoryLayer) {
-        memoryDao.getMemoriesByLayer(layer.name).collect { entities ->
-            entities.forEach { entity ->
-                memoryDao.setActive(entity.id, true)
-                memoryDao.incrementAccess(entity.id)
-            }
+        val entities = memoryDao.getMemoriesByLayer(layer.name).first()
+        entities.forEach { entity ->
+            memoryDao.setActive(entity.id, true)
+            memoryDao.incrementAccess(entity.id)
         }
     }
 
