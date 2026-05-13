@@ -1,5 +1,6 @@
 package com.neuralmind.ui.screens.toolkit
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -132,8 +133,9 @@ fun ToolCard(
     isDownloading: Boolean
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = if (isInstalled) onLaunch else {},
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = isInstalled) { onLaunch() },
         colors = CardDefaults.cardColors(
             containerColor = if (isInstalled) {
                 MaterialTheme.colorScheme.primaryContainer
