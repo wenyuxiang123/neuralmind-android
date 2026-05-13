@@ -10,6 +10,8 @@ import java.io.File
 import java.io.InputStreamReader
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 @Singleton
 class SkillExecutor @Inject constructor(
@@ -65,16 +67,16 @@ class SkillExecutor @Inject constructor(
             .replace("e", "2.718281828")
         
         // Handle basic arithmetic with parentheses
-        if (!sanitized.contains(Regex("[√π^]"))) {
+        if (!sanitized.contains(Regex("""[√π^]"""))) {
             return evaluateArithmetic(sanitized)
         }
         
         // Handle advanced math functions
         var processed = sanitized
         // Process sqrt
-        val sqrtRegex = Regex("√(\d+\.?\d*)")
+        val sqrtRegex = Regex("""√(\d+\.?\d*)""")
         processed = sqrtRegex.replace(processed) { 
-            kotlin.math.sqrt(it.groupValues[1].toDouble()).toString() 
+            sqrt(it.groupValues[1].toDouble()).toString() 
         }
         // Process pi
         processed = processed.replace("π", "3.14159265359")
@@ -85,11 +87,11 @@ class SkillExecutor @Inject constructor(
     }
     
     private fun processPower(expr: String): String {
-        val powerRegex = Regex("(-?\d+\.?\d*)\^(-?\d+\.?\d*)")
+        val powerRegex = Regex("""(-?\d+\.?\d*)\^(-?\d+\.?\d*)""")
         var result = expr
         while (powerRegex.containsMatchIn(result)) {
             result = powerRegex.replace(result) { 
-                kotlin.math.pow(
+                pow(
                     it.groupValues[1].toDouble(), 
                     it.groupValues[2].toDouble()
                 ).toString()
@@ -99,7 +101,7 @@ class SkillExecutor @Inject constructor(
     }
 
     private fun evaluateArithmetic(expr: String): Double {
-        val sanitized = expr.replace(Regex("[^0-9+\-*/().]"), "")
+        val sanitized = expr.replace(Regex("""[^0-9+\-*/().]"""), "")
         
         val result = object {
             var pos = 0
@@ -144,7 +146,6 @@ class SkillExecutor @Inject constructor(
             }
             
             fun parseNumber(): Double {
-                var num = 0.0
                 var start = pos
                 while (pos < sanitized.length && (sanitized[pos].isDigit() || sanitized[pos] == '.')) {
                     pos++
