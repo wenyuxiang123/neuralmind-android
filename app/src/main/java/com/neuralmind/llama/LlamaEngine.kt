@@ -19,7 +19,6 @@ class LlamaEngine @Inject constructor(
     @ApplicationContext private val context: Context,
     private val modelRepository: ModelRepository
 ) {
-    private val llamaJNI = LlamaJNI()
     private var engineId: Long = 0
 
     private val _tokenFlow = MutableSharedFlow<String>()
@@ -38,14 +37,14 @@ class LlamaEngine @Inject constructor(
     val inferenceConfig: StateFlow<InferenceConfig> = _inferenceConfig
 
     init {
-        engineId = llamaJNI.createEngine()
+        engineId = LlamaJNI.createEngine()
     }
 
     suspend fun loadModel(modelId: String): Boolean {
         val modelPath = modelRepository.getModelPath(modelId)
         
         try {
-            val loaded = llamaJNI.loadModel(engineId, modelPath ?: "default")
+            val loaded = LlamaJNI.loadModel(engineId, modelPath ?: "default")
             _isModelLoaded.value = loaded
             if (loaded) {
                 currentModelPath = modelPath
@@ -59,7 +58,7 @@ class LlamaEngine @Inject constructor(
     }
 
     fun unloadModel() {
-        llamaJNI.unloadModel(engineId)
+        LlamaJNI.unloadModel(engineId)
         _isModelLoaded.value = false
         currentModelPath = null
         currentModelId = null
@@ -67,7 +66,7 @@ class LlamaEngine @Inject constructor(
 
     fun getSupportedModels(): Array<String> {
         return try {
-            llamaJNI.getSupportedModels()
+            LlamaJNI.getSupportedModels()
         } catch (e: Exception) {
             emptyArray()
         }
@@ -96,7 +95,7 @@ class LlamaEngine @Inject constructor(
 
             // Use streaming JNI method
             val response = try {
-                llamaJNI.generateStream(
+                LlamaJNI.generateStream(
                     engineId,
                     prompt,
                     config.maxTokens,
@@ -139,7 +138,7 @@ class LlamaEngine @Inject constructor(
             }
 
             val response = try {
-                llamaJNI.generateStream(
+                LlamaJNI.generateStream(
                     engineId,
                     prompt,
                     config.maxTokens,
@@ -162,7 +161,7 @@ class LlamaEngine @Inject constructor(
 
     fun stopGeneration() {
         try {
-            llamaJNI.stopGeneration(engineId)
+            LlamaJNI.stopGeneration(engineId)
         } catch (e: Exception) {
             // 忽略错误
         }
