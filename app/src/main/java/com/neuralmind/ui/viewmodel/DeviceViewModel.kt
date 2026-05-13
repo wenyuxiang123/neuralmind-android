@@ -11,6 +11,12 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * 设备控制 ViewModel
+ * 
+ * 由于 Android 权限限制，WiFi、蓝牙、亮度等控制需要打开系统设置页面让用户操作。
+ * 这些方法会调用 DeviceController 中对应的 openXxxSettings 方法。
+ */
 @HiltViewModel
 class DeviceViewModel @Inject constructor(
     private val deviceRepository: DeviceRepository,
@@ -52,20 +58,54 @@ class DeviceViewModel @Inject constructor(
         }
     }
 
-    fun toggleWifi() {
+    /**
+     * 打开 WiFi 设置页面
+     * 由于 Android 10+ 限制应用直接控制 WiFi，改为打开系统设置
+     */
+    fun openWifiSettings() {
+        deviceController.openWifiSettings()
+        // 延迟刷新状态，因为用户可能在设置中改变了状态
         viewModelScope.launch {
-            val newState = !_uiState.value.isWifiEnabled
-            deviceController.setWifiEnabled(newState)
-            _uiState.update { it.copy(isWifiEnabled = newState) }
+            kotlinx.coroutines.delay(1000)
+            refreshDeviceState()
         }
     }
 
-    fun toggleBluetooth() {
+    /**
+     * 打开蓝牙设置页面
+     * 由于权限限制，改为打开系统设置
+     */
+    fun openBluetoothSettings() {
+        deviceController.openBluetoothSettings()
+        // 延迟刷新状态
         viewModelScope.launch {
-            val newState = !_uiState.value.isBluetoothEnabled
-            deviceController.setBluetoothEnabled(newState)
-            _uiState.update { it.copy(isBluetoothEnabled = newState) }
+            kotlinx.coroutines.delay(1000)
+            refreshDeviceState()
         }
+    }
+
+    /**
+     * 打开音量设置页面
+     */
+    fun openSoundSettings() {
+        deviceController.openSoundSettings()
+    }
+
+    /**
+     * 打开显示设置页面
+     * 由于权限限制，改为打开系统设置
+     */
+    fun openDisplaySettings() {
+        deviceController.openDisplaySettings()
+    }
+
+    // 保留旧的方法名以保持兼容性，内部调用新的方法
+    fun toggleWifi() {
+        openWifiSettings()
+    }
+
+    fun toggleBluetooth() {
+        openBluetoothSettings()
     }
 
     fun setMediaVolume(volume: Int) {
@@ -76,10 +116,8 @@ class DeviceViewModel @Inject constructor(
     }
 
     fun setBrightness(brightness: Int) {
-        viewModelScope.launch {
-            deviceController.setBrightness(brightness)
-            _uiState.update { it.copy(brightness = brightness) }
-        }
+        // 由于需要 WRITE_SETTINGS 权限，改为打开设置
+        openDisplaySettings()
     }
 
     fun toggleRule(ruleId: String) {
