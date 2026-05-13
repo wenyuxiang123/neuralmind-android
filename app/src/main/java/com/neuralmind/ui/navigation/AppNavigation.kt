@@ -75,9 +75,7 @@ fun AppNavigation(navController: NavHostController) {
         }
 
         composable(Screen.DeviceControl.route) {
-            DeviceControlScreen(
-                onNavigateBack = { navController.popBackStack() }
-            )
+            DeviceControlScreen()
         }
 
         composable(Screen.ToolkitStore.route) {
