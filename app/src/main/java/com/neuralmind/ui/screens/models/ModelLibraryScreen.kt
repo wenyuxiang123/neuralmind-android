@@ -185,7 +185,7 @@ fun DarkModelCard(
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     if (isInstalled) {
-                        OutlinedButton(onClick = onDelete, colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusOffline))) { Icon(Icons.Default.Delete, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("删除") }
+                        OutlinedButton(onClick = onDelete, colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusOffline)) { Icon(Icons.Default.Delete, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("删除") }
                     } else if (isDownloading) {
                         OutlinedButton(onClick = {}, enabled = false, colors = ButtonDefaults.outlinedButtonColors(disabledContentColor = TextSecondary)) { CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = GradientStart); Spacer(modifier = Modifier.width(8.dp)); Text("${(downloadProgress * 100).toInt()}%") }
                     } else {
