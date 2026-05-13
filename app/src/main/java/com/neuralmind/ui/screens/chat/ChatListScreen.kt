@@ -24,6 +24,7 @@ fun ChatListScreen(
     onNewConversation: (Long) -> Unit
 ) {
     val conversations by viewModel.conversations.collectAsState()
+    val installedModels by viewModel.installedModels.collectAsState()
     var showNewConversationDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -82,6 +83,7 @@ fun ChatListScreen(
 
         if (showNewConversationDialog) {
             NewConversationDialog(
+                installedModels = installedModels,
                 onDismiss = { showNewConversationDialog = false },
                 onConfirm = { title, model ->
                     viewModel.createConversation(title, model) { conversationId ->
@@ -127,11 +129,16 @@ fun ConversationItem(
 
 @Composable
 fun NewConversationDialog(
+    installedModels: List<com.neuralmind.domain.model.AIModel>,
     onDismiss: () -> Unit,
     onConfirm: (String, String) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
-    var selectedModel by remember { mutableStateOf("llama3.2-1b") }
+    
+    // Default to first installed model or a fallback
+    var selectedModel by remember { 
+        mutableStateOf(installedModels.firstOrNull()?.id ?: "llama3.2-1b") 
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -147,10 +154,20 @@ fun NewConversationDialog(
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("选择模型", style = MaterialTheme.typography.labelMedium)
                 Spacer(modifier = Modifier.height(8.dp))
-                ModelSelector(
-                    selectedModel = selectedModel,
-                    onModelSelected = { selectedModel = it }
-                )
+                
+                if (installedModels.isEmpty()) {
+                    Text(
+                        text = "暂无可用模型，请先下载模型",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                } else {
+                    ModelSelector(
+                        models = installedModels,
+                        selectedModel = selectedModel,
+                        onModelSelected = { selectedModel = it }
+                    )
+                }
             }
         },
         confirmButton = {
@@ -175,31 +192,32 @@ fun NewConversationDialog(
 
 @Composable
 fun ModelSelector(
+    models: List<com.neuralmind.domain.model.AIModel>,
     selectedModel: String,
     onModelSelected: (String) -> Unit
 ) {
-    val models = listOf(
-        "llama3.2-1b" to "LLaMA 3.2 1B",
-        "gemma-2b" to "Gemma 2B",
-        "phi-2.5" to "Phi-2.5 3B",
-        "qwen2.5-0.5b" to "Qwen2.5 0.5B"
-    )
-
     Column {
-        models.forEach { (id, name) ->
+        models.forEach { model ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onModelSelected(id) }
+                    .clickable { onModelSelected(model.id) }
                     .padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 RadioButton(
-                    selected = selectedModel == id,
-                    onClick = { onModelSelected(id) }
+                    selected = selectedModel == model.id,
+                    onClick = { onModelSelected(model.id) }
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(name)
+                Column {
+                    Text(model.name)
+                    Text(
+                        text = model.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
