@@ -16,9 +16,10 @@ set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
 set(GGML_OPENBLAS OFF CACHE BOOL "" FORCE)
 set(GGML_BLAS OFF CACHE BOOL "" FORCE)
 set(GGML_RPC OFF CACHE BOOL "" FORCE)
+set(GGML_CPU_LLAMAFILE OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
-# Fetch llama.cpp from GitHub release archive (much faster than git clone)
+# Fetch llama.cpp from GitHub release archive
 include(FetchContent)
 FetchContent_Declare(
     llama_cpp
