@@ -215,21 +215,18 @@ content<|im_end|>
                 MessageRole.ASSISTANT -> "assistant"
                 MessageRole.SYSTEM -> "system"
             }
-            sb.append("<|im_start|>$role
-")
+            sb.append("<|im_start|>$role\n")
             sb.append(msg.content)
             sb.append("<|im_end|>\n")
         }
         
         // Current user input
-        sb.append("<|im_start|>user
-")
+        sb.append("<|im_start|>user\n")
         sb.append(userInput)
         sb.append("<|im_end|>\n")
         
         // Assistant prefix for generation
-        sb.append("<|im_start|>assistant
-")
+        sb.append("<|im_start|>assistant\n")
         
         return sb.toString()
     }
