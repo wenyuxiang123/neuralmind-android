@@ -31,8 +31,6 @@
     <!-- 应用卸载 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 应用更新安装 -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
-    <!-- 检查已安装应用（用于模型兼容性检查） -->
 
     <!-- Foreground Service - 前台服务 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -42,6 +40,7 @@
 
     <application
         android:name=".NeuralMindApp"
+        android:extractNativeLibs="true"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
