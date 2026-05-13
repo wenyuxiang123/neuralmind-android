@@ -33,7 +33,7 @@ struct ggml_tensor {
     struct ggml_tensor * view_src;
     size_t view_offset;
     struct ggml_tensor * grad;
-    struct ggml_tensor * src[GGML_MAX_SRC];
+    struct ggml_tensor * src[8];  // GGML_MAX_SRC;
     struct ggml_tensor * parent;
 };
 
@@ -210,7 +210,7 @@ GGML_API struct ggml_tensor * ggml_new_tensor(
     tensor->view_src = nullptr;
     tensor->view_offset = 0;
     tensor->grad = nullptr;
-    for (int i = 0; i < GGML_MAX_SRC; i++) {
+    for (int i = 0; i < 8; i++) {
         tensor->src[i] = nullptr;
     }
     
