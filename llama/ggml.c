@@ -42,9 +42,9 @@ struct ggml_cgraph {
     int n_nodes;
     int n_leafs;
     int n_threads;
-    struct ggml_tensor * nodes[GGML_MAX_NODES];
-    struct ggml_tensor * grads[GGML_MAX_NODES];
-    struct ggml_tensor * leafs[GGML_MAX_NODES];
+    struct ggml_tensor * nodes[4096];  // GGML_MAX_NODES
+    struct ggml_tensor * grads[4096];  // GGML_MAX_NODES
+    struct ggml_tensor * leafs[4096];  // GGML_MAX_NODES
 };
 
 // GGML backend CPU
@@ -319,7 +319,7 @@ GGML_API struct ggml_tensor * ggml_view_tensor(
 GGML_API void ggml_build_forward_expand(struct ggml_cgraph * cgraph, struct ggml_tensor * tensor) {
     if (!cgraph || !tensor) return;
     
-    if (cgraph->n_nodes < GGML_MAX_NODES) {
+    if (cgraph->n_nodes < 4096) {
         cgraph->nodes[cgraph->n_nodes++] = tensor;
     }
 }
