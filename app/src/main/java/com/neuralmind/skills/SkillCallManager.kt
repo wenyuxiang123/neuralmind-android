@@ -1,10 +1,10 @@
 package com.neuralmind.skills
 
 import com.neuralmind.data.repository.SkillRepository
-import dagger.hilt.android.scopes.ViewModelScoped
+import javax.inject.Singleton
 import javax.inject.Inject
 
-@ViewModelScoped
+@Singleton
 class SkillCallManager @Inject constructor(
     private val skillRepository: SkillRepository,
     private val skillExecutor: SkillExecutor
