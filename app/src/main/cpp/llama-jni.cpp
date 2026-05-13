@@ -89,7 +89,7 @@ Java_com_neuralmind_llama_LlamaJNI_createEngine(JNIEnv* env, jobject thiz) {
 
     engineMap[engineId] = engine;
 
-    LOGI("Created new LlamaEngine with ID: %lld", (long long)engineId);
+    LOGI("Created new LlamaEngine with ID: %ld", (long)engineId);
 
     return engineId;
 }
@@ -103,11 +103,10 @@ Java_com_neuralmind_llama_LlamaJNI_destroyEngine(JNIEnv* env, jobject thiz, jlon
     if (it != engineMap.end()) {
         delete it->second;
         engineMap.erase(it);
-        LOGI("Destroyed LlamaEngine with ID: %lld", (long long)engineId);
+        LOGI("Destroyed LlamaEngine with ID: %ld", (long)engineId);
     }
 
     // Free llama backend on last engine destruction
-    // Note: llama_backend_free is safe to call multiple times
     llama_backend_free();
 }
 
@@ -118,7 +117,7 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
 
     auto it = engineMap.find(engineId);
     if (it == engineMap.end()) {
-        LOGE("Engine not found: %lld", (long long)engineId);
+        LOGE("Engine not found: %ld", (long)engineId);
         return JNI_FALSE;
     }
 
@@ -143,13 +142,10 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
 
     LOGI("Loading model from: %s", path);
 
-    // Set model parameters
+    // Set model parameters (b9128: n_ctx/n_threads/numa moved to context params)
     llama_model_params params = llama_model_default_params();
-    params.n_ctx = 2048;       // Context size
-    params.n_batch = 512;      // Batch size for prompt processing
-    params.n_threads = 4;      // CPU threads
-    params.n_threads_batch = 4;
-    params.numa = false;
+    params.n_gpu_layers = 0;  // CPU-only (no GPU offload)
+    params.n_threads = 4;       // CPU threads for model loading
 
     // Load the model (new API: llama_model_load_from_file)
     engine->model = llama_model_load_from_file(path, params);
@@ -160,7 +156,7 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
         return JNI_FALSE;
     }
 
-    // Initialize context
+    // Initialize context (n_ctx/n_threads/numa are now in context params)
     llama_context_params ctx_params = llama_context_default_params();
     ctx_params.n_ctx = 2048;
     ctx_params.n_batch = 512;
@@ -297,7 +293,7 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         promptTokens.data(),
         (int)promptTokens.size(),
         true,   // add_bos
-        false   // special_tokens
+        false   // parse_special
     );
 
     releaseJString(env, prompt, promptStr);
@@ -336,7 +332,8 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     // Order matters: temperature -> top_k -> top_p -> penalties -> distribution
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP));
+    // b9128: llama_sampler_init_top_p takes (float p, size_t min_keep)
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, 1));
     llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
         topK,             // penalty_last_n
         repeatPenalty,    // penalty_repeat
@@ -379,7 +376,7 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
 
         // Convert token to piece (new API)
         char tokenBuf[128] = {0};
-        int nWritten = llama_token_to_piece(vocab, newToken, tokenBuf, sizeof(tokenBuf), 0, false);
+        int nWritten = llama_token_to_piece(vocab, newToken, tokenBuf, (int)sizeof(tokenBuf), 0, false);
         if (nWritten > 0) {
             generatedText += tokenBuf;
         }
@@ -463,7 +460,8 @@ Java_com_neuralmind_llama_LlamaJNI_getModelInfo(JNIEnv* env, jobject thiz, jlong
     info += "Embedding size: " + std::to_string(llama_model_n_embd(engine->model)) + "\n";
     info += "Layers: " + std::to_string(llama_model_n_layer(engine->model)) + "\n";
     info += "Context size: " + std::to_string(llama_n_ctx(engine->context)) + "\n";
-    info += "Status: " + (engine->context ? "Loaded" : "Not loaded");
+    info += "Status: ";
+    info += (engine->context ? "Loaded" : "Not loaded");
 
     return cstringToJString(env, info);
 }
