@@ -23,9 +23,26 @@ class InstallSkillUseCase @Inject constructor(
     suspend operator fun invoke(skillId: String) = repository.installSkill(skillId)
 }
 
-class ExecuteSkillUseCase @Inject constructor(
+class UninstallSkillUseCase @Inject constructor(
     private val repository: SkillRepository
 ) {
-    suspend operator fun invoke(skillId: String, params: Map<String, String>): String = 
-        repository.executeSkill(skillId, params)
+    suspend operator fun invoke(skillId: String) = repository.uninstallSkill(skillId)
+}
+
+class ActivateSkillUseCase @Inject constructor(
+    private val repository: SkillRepository
+) {
+    suspend operator fun invoke(skillId: String) = repository.activateSkill(skillId)
+}
+
+class DeactivateSkillUseCase @Inject constructor(
+    private val repository: SkillRepository
+) {
+    suspend operator fun invoke(skillId: String) = repository.deactivateSkill(skillId)
+}
+
+class GetActiveSystemPromptsUseCase @Inject constructor(
+    private val repository: SkillRepository
+) {
+    suspend operator fun invoke(): String = repository.getActiveSystemPrompts()
 }
