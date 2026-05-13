@@ -2,6 +2,7 @@ package com.neuralmind.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.neuralmind.core.Logger
 import com.neuralmind.data.repository.DeviceRepository
 import com.neuralmind.device.AudioStream
 import com.neuralmind.device.DeviceController
@@ -13,19 +14,16 @@ import javax.inject.Inject
 
 /**
  * 设备控制 ViewModel
- * 
- * 由于 Android 权限限制，WiFi、蓝牙、亮度等控制需要打开系统设置页面让用户操作。
- * 这些方法会调用 DeviceController 中对应的 openXxxSettings 方法。
  */
 @HiltViewModel
 class DeviceViewModel @Inject constructor(
     private val deviceRepository: DeviceRepository,
     private val deviceController: DeviceController
 ) : ViewModel() {
-
+    
     private val _uiState = MutableStateFlow(DeviceUiState())
     val uiState: StateFlow<DeviceUiState> = _uiState.asStateFlow()
-
+    
     val automationRules = listOf(
         AutomationRule(
             id = "wakeup",
@@ -37,32 +35,38 @@ class DeviceViewModel @Inject constructor(
             isEnabled = true
         )
     )
-
+    
     init {
         refreshDeviceState()
     }
-
+    
     fun refreshDeviceState() {
+        Logger.d(Logger.Tags.VM, "refreshDeviceState()")
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isWifiEnabled = deviceController.isWifiEnabled(),
-                    isBluetoothEnabled = deviceController.isBluetoothEnabled(),
-                    batteryLevel = deviceController.getBatteryLevel(),
-                    isCharging = deviceController.isCharging(),
-                    mediaVolume = deviceController.getVolume(AudioStream.MEDIA),
-                    maxMediaVolume = deviceController.getMaxVolume(AudioStream.MEDIA),
-                    brightness = deviceController.getBrightness()
-                )
+            try {
+                _uiState.update {
+                    it.copy(
+                        isWifiEnabled = deviceController.isWifiEnabled(),
+                        isBluetoothEnabled = deviceController.isBluetoothEnabled(),
+                        batteryLevel = deviceController.getBatteryLevel(),
+                        isCharging = deviceController.isCharging(),
+                        mediaVolume = deviceController.getVolume(AudioStream.MEDIA),
+                        maxMediaVolume = deviceController.getMaxVolume(AudioStream.MEDIA),
+                        brightness = deviceController.getBrightness()
+                    )
+                }
+                Logger.i(Logger.Tags.VM, "refreshDeviceState success: battery=${_uiState.value.batteryLevel}%")
+            } catch (e: Exception) {
+                Logger.e(Logger.Tags.VM, "refreshDeviceState failed", e)
             }
         }
     }
-
+    
     /**
      * 打开 WiFi 设置页面
-     * 由于 Android 10+ 限制应用直接控制 WiFi，改为打开系统设置
      */
     fun openWifiSettings() {
+        Logger.d(Logger.Tags.VM, "openWifiSettings()")
         deviceController.openWifiSettings()
         // 延迟刷新状态，因为用户可能在设置中改变了状态
         viewModelScope.launch {
@@ -70,12 +74,12 @@ class DeviceViewModel @Inject constructor(
             refreshDeviceState()
         }
     }
-
+    
     /**
      * 打开蓝牙设置页面
-     * 由于权限限制，改为打开系统设置
      */
     fun openBluetoothSettings() {
+        Logger.d(Logger.Tags.VM, "openBluetoothSettings()")
         deviceController.openBluetoothSettings()
         // 延迟刷新状态
         viewModelScope.launch {
@@ -83,44 +87,55 @@ class DeviceViewModel @Inject constructor(
             refreshDeviceState()
         }
     }
-
+    
     /**
      * 打开音量设置页面
      */
     fun openSoundSettings() {
+        Logger.d(Logger.Tags.VM, "openSoundSettings()")
         deviceController.openSoundSettings()
     }
-
+    
     /**
      * 打开显示设置页面
-     * 由于权限限制，改为打开系统设置
      */
     fun openDisplaySettings() {
+        Logger.d(Logger.Tags.VM, "openDisplaySettings()")
         deviceController.openDisplaySettings()
     }
-
+    
     // 保留旧的方法名以保持兼容性，内部调用新的方法
     fun toggleWifi() {
+        Logger.d(Logger.Tags.VM, "toggleWifi()")
         openWifiSettings()
     }
-
+    
     fun toggleBluetooth() {
+        Logger.d(Logger.Tags.VM, "toggleBluetooth()")
         openBluetoothSettings()
     }
-
+    
     fun setMediaVolume(volume: Int) {
+        Logger.d(Logger.Tags.VM, "setMediaVolume(volume=$volume)")
         viewModelScope.launch {
-            deviceController.setVolume(AudioStream.MEDIA, volume)
-            _uiState.update { it.copy(mediaVolume = volume) }
+            try {
+                deviceController.setVolume(AudioStream.MEDIA, volume)
+                _uiState.update { it.copy(mediaVolume = volume) }
+                Logger.i(Logger.Tags.VM, "setMediaVolume success: $volume")
+            } catch (e: Exception) {
+                Logger.e(Logger.Tags.VM, "setMediaVolume failed", e)
+            }
         }
     }
-
+    
     fun setBrightness(brightness: Int) {
         // 由于需要 WRITE_SETTINGS 权限，改为打开设置
+        Logger.d(Logger.Tags.VM, "setBrightness(brightness=$brightness) - opening settings")
         openDisplaySettings()
     }
-
+    
     fun toggleRule(ruleId: String) {
+        Logger.d(Logger.Tags.VM, "toggleRule(ruleId=$ruleId)")
         viewModelScope.launch {
             try {
                 val rule = automationRules.find { it.id == ruleId }
@@ -130,19 +145,22 @@ class DeviceViewModel @Inject constructor(
                     } else {
                         deviceRepository.enableRule(ruleId)
                     }
+                    Logger.i(Logger.Tags.VM, "toggleRule success: $ruleId")
                 }
             } catch (e: Exception) {
-                // 处理错误
+                Logger.e(Logger.Tags.VM, "toggleRule failed: $ruleId", e)
             }
         }
     }
-
+    
     fun deleteRule(ruleId: String) {
+        Logger.d(Logger.Tags.VM, "deleteRule(ruleId=$ruleId)")
         viewModelScope.launch {
             try {
                 deviceRepository.deleteRule(ruleId)
+                Logger.i(Logger.Tags.VM, "deleteRule success: $ruleId")
             } catch (e: Exception) {
-                // 处理错误
+                Logger.e(Logger.Tags.VM, "deleteRule failed: $ruleId", e)
             }
         }
     }
