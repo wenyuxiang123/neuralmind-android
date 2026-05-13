@@ -1,5 +1,6 @@
 package com.neuralmind.ui.screens.chat
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +21,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuralmind.domain.model.Message
 import com.neuralmind.domain.model.MessageRole
 import com.neuralmind.ui.viewmodel.ChatViewModel
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -35,7 +37,22 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsState()
     val currentConversation by viewModel.currentConversation.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
-    var inputText by remember { mutableStateOf("") }
+    val streamingMessage by viewModel.streamingMessage.collectAsState()
+    
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    
+    // Collect error events
+    LaunchedEffect(Unit) {
+        viewModel.errorEvent.collect { errorMessage ->
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    message = errorMessage,
+                    duration = SnackbarDuration.Short
+                )
+            }
+        }
+    }
 
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
@@ -67,7 +84,8 @@ fun ChatScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -86,19 +104,93 @@ fun ChatScreen(
                 ) { message ->
                     MessageBubble(message = message)
                 }
+                
+                // Display streaming message at the end
+                streamingMessage?.let { streaming ->
+                    item(key = "streaming") {
+                        StreamingMessageBubble(message = streaming)
+                    }
+                }
             }
 
             ChatInput(
-                inputText = inputText,
-                onInputChanged = { inputText = it },
+                inputText = uiState.inputText,
+                onInputChanged = { viewModel.updateInputText(it) },
                 onSend = {
-                    if (inputText.isNotBlank()) {
-                        viewModel.sendMessage(inputText)
-                        inputText = ""
-                    }
+                    viewModel.sendMessage(uiState.inputText)
                 },
                 isLoading = uiState.isLoading,
                 modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+fun StreamingMessageBubble(
+    message: Message,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "cursor")
+    val cursorAlpha by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "cursorAlpha"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(8.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Column(
+            horizontalAlignment = Alignment.Start
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Android,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                    tint = MaterialTheme.colorScheme.onPrimary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Card(
+                    shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = message.content,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            textAlign = TextAlign.Start
+                        )
+                        // Blinking cursor effect
+                        Text(
+                            text = "▊",
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = cursorAlpha),
+                            modifier = Modifier.padding(start = 2.dp)
+                        )
+                    }
+                }
+            }
+            Text(
+                text = "正在生成...",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(4.dp, 2.dp)
             )
         }
     }
