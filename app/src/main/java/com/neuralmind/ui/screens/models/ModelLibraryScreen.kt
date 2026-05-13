@@ -76,7 +76,7 @@ fun ModelLibraryScreen(
                 Tab(
                     selected = isSelected, onClick = { selectedCategory = category },
                     modifier = Modifier.padding(horizontal = 4.dp).clip(RoundedCornerShape(20.dp))
-                        .background(if (isSelected) Brush.horizontalGradient(listOf(GradientStart, GradientEnd)) else CardBackground)
+                        .then(if (isSelected) Modifier.background(brush = Brush.horizontalGradient(listOf(GradientStart, GradientEnd))) else Modifier.background(CardBackground))
                 ) {
                     Text(text = label, color = if (isSelected) Color.White else TextSecondary,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
