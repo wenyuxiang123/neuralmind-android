@@ -170,8 +170,14 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Build prompt using ChatML format for LLM inference.
+     * Build prompt using ChatML format for LLM inference, with memory context injection.
      * ChatML format: <|im_start|>role\ncontent<|im_end|>
+     * 
+     * Memory injection strategy:
+     * - Get currently active memories via snapshot
+     * - Sort by importance (descending)
+     * - Limit to top 10 memories to avoid context overflow
+     * - Inject into system prompt with clear formatting
      * 
      * This format is compatible with:
      * - LLaMA 3.x models
@@ -179,13 +185,28 @@ class ChatViewModel @Inject constructor(
      * - Most modern chat-tuned models
      * - llama.cpp tokenization
      */
-    private fun buildPrompt(userInput: String, contextMessages: List<Message>): String {
+    private suspend fun buildPrompt(userInput: String, contextMessages: List<Message>): String {
         val sb = StringBuilder()
         
-        // System prompt
+        // System prompt with memory context
         sb.append("<|im_start|>system\n")
-        sb.append("你是一个智能助手，名为NeuralMind，运行在本地设备上。")
-        sb.append("你可以帮助用户完成各种任务，包括回答问题、编写代码、进行分析等。")
+        sb.append("你是NeuralMind AI助手，一个运行在本地设备上的智能助手。")
+        
+        // Inject active memory context
+        val activeMemories = memoryRepository.getActiveMemoriesSnapshot()
+        if (activeMemories.isNotEmpty()) {
+            sb.append("\n\n【关于用户的记忆】\n")
+            
+            // Sort by importance and limit to 10 most important memories
+            val relevantMemories = activeMemories
+                .sortedByDescending { it.importance }
+                .take(10)
+            
+            relevantMemories.forEach { memory ->
+                sb.append("- [${memory.layer.description}] ${memory.content}\n")
+            }
+        }
+        
         sb.append("<|im_end|>\n")
         
         // Context messages (limited to last 10 to save context)
