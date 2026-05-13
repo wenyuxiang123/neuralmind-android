@@ -1,6 +1,7 @@
 package com.neuralmind.core
 
 import android.content.Context
+import android.os.Environment
 import android.util.Log
 import com.neuralmind.BuildConfig
 import java.io.File
@@ -18,6 +19,7 @@ import java.util.concurrent.TimeUnit
  * 支持 VERBOSE/DEBUG/INFO/WARN/ERROR 五个级别
  * DEBUG 模式输出所有级别，Release 模式只输出 WARN 和 ERROR
  * 支持日志写入文件，保留最近7天日志
+ * 日志文件存储在外部存储，可通过文件管理器访问
  */
 object Logger {
     
@@ -41,8 +43,29 @@ object Logger {
     val isDebugMode: Boolean
         get() = BuildConfig.DEBUG
     
+    /**
+     * 日志目录：优先使用外部存储（文件管理器可访问）
+     * 路径: /storage/emulated/0/Android/data/com.neuralmind/files/logs/
+     * 如果外部不可用则回退到内部存储
+     */
     private val logDir: File?
-        get() = context?.filesDir?.let { File(it, "logs") }
+        get() {
+            val ctx = context ?: return null
+            // 优先外部存储 - 文件管理器可访问
+            val externalDir = ctx.getExternalFilesDir(null)
+            if (externalDir != null) {
+                val dir = File(externalDir, "logs")
+                if (dir.exists() || dir.mkdirs()) {
+                    return dir
+                }
+            }
+            // 回退内部存储
+            val internalDir = File(ctx.filesDir, "logs")
+            if (internalDir.exists() || internalDir.mkdirs()) {
+                return internalDir
+            }
+            return null
+        }
     
     private val writeExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
     
@@ -52,7 +75,7 @@ object Logger {
     private val fileNameFormatter = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
     
     private const val MAX_LOG_DAYS = 7
-    private const val BATCH_SIZE = 10
+    private const val BATCH_SIZE = 50
     
     private data class LogEntry(
         val tag: String,
@@ -70,6 +93,7 @@ object Logger {
             if (!dir.exists()) {
                 dir.mkdirs()
             }
+            Log.d("Logger", "Log directory: ${dir.absolutePath}")
         }
         
         cleanOldLogs()
@@ -162,8 +186,10 @@ object Logger {
     
     private fun flushLogs() {
         val entries = mutableListOf<LogEntry>()
-        repeat(BATCH_SIZE) {
-            logQueue.poll()?.let { entries.add(it) }
+        var entry = logQueue.poll()
+        while (entry != null && entries.size < BATCH_SIZE) {
+            entries.add(entry)
+            entry = logQueue.poll()
         }
         
         if (entries.isEmpty()) return
@@ -172,12 +198,12 @@ object Logger {
         
         try {
             PrintWriter(FileWriter(logFile, true)).use { writer ->
-                entries.forEach { entry ->
-                    writer.println(formatLogEntry(entry))
+                entries.forEach { e ->
+                    writer.println(formatLogEntry(e))
                 }
             }
         } catch (e: Exception) {
-            // 忽略写入错误
+            Log.e("Logger", "Failed to write log file", e)
         }
     }
     
@@ -234,6 +260,10 @@ object Logger {
         return logDir?.absolutePath
     }
     
+    /**
+     * 刷新所有待写入的日志
+     * 在 Application.onTrimMemory 或 Activity.onDestroy 时调用
+     */
     fun flush() {
         while (logQueue.isNotEmpty()) {
             flushLogs()
