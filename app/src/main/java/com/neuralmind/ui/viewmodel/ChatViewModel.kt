@@ -182,8 +182,7 @@ content<|im_end|>
         val sb = StringBuilder()
         
         // System prompt with memory and skill context
-        sb.append("<|im_start|>system
-")
+        sb.append("<|im_start|>system\n")
         sb.append("你是NeuralMind AI助手，一个运行在本地设备上的智能助手。")
         
         // Inject active skill prompts first
@@ -195,10 +194,7 @@ content<|im_end|>
         // Inject active memory context
         val activeMemories = memoryRepository.getActiveMemoriesSnapshot()
         if (activeMemories.isNotEmpty()) {
-            sb.append("
-
-【关于用户的记忆】
-")
+            sb.append("\n\n【关于用户的记忆】\n")
             
             // Sort by importance and limit to 10 most important memories
             val relevantMemories = activeMemories
@@ -206,13 +202,11 @@ content<|im_end|>
                 .take(10)
             
             relevantMemories.forEach { memory ->
-                sb.append("- [${memory.layer.description}] ${memory.content}
-")
+                sb.append("- [${memory.layer.description}] ${memory.content}\n")
             }
         }
         
-        sb.append("<|im_end|>
-")
+        sb.append("<|im_end|>\n")
         
         // Context messages (limited to last 10 to save context)
         for (msg in contextMessages) {
@@ -224,16 +218,14 @@ content<|im_end|>
             sb.append("<|im_start|>$role
 ")
             sb.append(msg.content)
-            sb.append("<|im_end|>
-")
+            sb.append("<|im_end|>\n")
         }
         
         // Current user input
         sb.append("<|im_start|>user
 ")
         sb.append(userInput)
-        sb.append("<|im_end|>
-")
+        sb.append("<|im_end|>\n")
         
         // Assistant prefix for generation
         sb.append("<|im_start|>assistant
