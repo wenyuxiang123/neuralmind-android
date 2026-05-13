@@ -1,6 +1,6 @@
 package com.neuralmind.data.repository
 
-import android.util.Log
+import com.neuralmind.core.Logger
 import com.neuralmind.data.local.db.dao.SkillDao
 import com.neuralmind.data.local.db.entity.SkillEntity
 import com.neuralmind.domain.model.Skill
@@ -15,82 +15,100 @@ import javax.inject.Singleton
 class SkillRepository @Inject constructor(
     private val skillDao: SkillDao
 ) {
-    companion object {
-        private const val TAG = "SkillRepository"
-    }
-
+    
     fun getAllSkills(): Flow<List<Skill>> {
+        Logger.d(Logger.Tags.REPO, "getAllSkills() called")
         return skillDao.getAllSkills().map { entities ->
             entities.map { it.toDomain() }
         }
     }
-
+    
     fun getSkillsByCategory(category: SkillCategory): Flow<List<Skill>> {
+        Logger.d(Logger.Tags.REPO, "getSkillsByCategory(category=${category.name})")
         return getAllSkills().map { skills ->
             skills.filter { it.category == category }
         }
     }
-
+    
     fun getInstalledSkills(): Flow<List<Skill>> {
+        Logger.d(Logger.Tags.REPO, "getInstalledSkills() called")
         return skillDao.getInstalledSkills().map { entities ->
             entities.map { it.toDomain() }
         }
     }
-
+    
     fun getActiveSkills(): Flow<List<Skill>> {
+        Logger.d(Logger.Tags.REPO, "getActiveSkills() called")
         return skillDao.getActiveSkills().map { entities ->
             entities.map { it.toDomain() }
         }
     }
-
+    
     suspend fun getSkillById(id: String): Skill? {
+        Logger.d(Logger.Tags.REPO, "getSkillById(id=$id)")
         return try {
-            skillDao.getSkillById(id)?.toDomain()
+            val skill = skillDao.getSkillById(id)?.toDomain()
+            Logger.d(Logger.Tags.REPO, "getSkillById result: ${skill?.name}")
+            skill
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting skill by id: $id", e)
+            Logger.e(Logger.Tags.REPO, "Error getting skill by id: $id", e)
             null
         }
     }
-
+    
     suspend fun installSkill(skillId: String) {
+        Logger.d(Logger.Tags.REPO, "installSkill(skillId=$skillId)")
         try {
             skillDao.setInstalled(skillId, true)
             skillDao.setActive(skillId, true)
+            Logger.i(Logger.Tags.REPO, "installSkill success: $skillId")
         } catch (e: Exception) {
-            Log.e(TAG, "Error installing skill: $skillId", e)
+            Logger.e(Logger.Tags.REPO, "Error installing skill: $skillId", e)
         }
     }
-
+    
     suspend fun uninstallSkill(skillId: String) {
+        Logger.d(Logger.Tags.REPO, "uninstallSkill(skillId=$skillId)")
         try {
             skillDao.setActive(skillId, false)
             skillDao.setInstalled(skillId, false)
+            Logger.i(Logger.Tags.REPO, "uninstallSkill success: $skillId")
         } catch (e: Exception) {
-            Log.e(TAG, "Error uninstalling skill: $skillId", e)
+            Logger.e(Logger.Tags.REPO, "Error uninstalling skill: $skillId", e)
         }
     }
-
+    
     suspend fun activateSkill(skillId: String) {
+        Logger.d(Logger.Tags.REPO, "activateSkill(skillId=$skillId)")
         try {
             val skill = skillDao.getSkillById(skillId)
-            if (skill?.isInstalled != true) return
+            if (skill?.isInstalled != true) {
+                Logger.w(Logger.Tags.REPO, "activateSkill: skill not installed, skillId=$skillId")
+                return
+            }
             skillDao.setActive(skillId, true)
+            Logger.i(Logger.Tags.REPO, "activateSkill success: $skillId")
         } catch (e: Exception) {
-            Log.e(TAG, "Error activating skill: $skillId", e)
+            Logger.e(Logger.Tags.REPO, "Error activating skill: $skillId", e)
         }
     }
-
+    
     suspend fun deactivateSkill(skillId: String) {
+        Logger.d(Logger.Tags.REPO, "deactivateSkill(skillId=$skillId)")
         try {
             skillDao.setActive(skillId, false)
+            Logger.i(Logger.Tags.REPO, "deactivateSkill success: $skillId")
         } catch (e: Exception) {
-            Log.e(TAG, "Error deactivating skill: $skillId", e)
+            Logger.e(Logger.Tags.REPO, "Error deactivating skill: $skillId", e)
         }
     }
-
+    
     suspend fun getActiveSystemPrompts(): String {
+        Logger.d(Logger.Tags.REPO, "getActiveSystemPrompts() called")
         return try {
             val activeSkills = skillDao.getActiveSkills().first()
+            Logger.d(Logger.Tags.REPO, "getActiveSystemPrompts: ${activeSkills.size} active skills")
+            
             if (activeSkills.isEmpty()) return ""
             
             val prompts = activeSkills.filter { it.systemPrompt.isNotBlank() }
@@ -102,15 +120,19 @@ class SkillRepository @Inject constructor(
                 ""
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting active system prompts", e)
+            Logger.e(Logger.Tags.REPO, "Error getting active system prompts", e)
             ""
         }
     }
-
+    
     suspend fun insertDefaultSkills() {
+        Logger.d(Logger.Tags.REPO, "insertDefaultSkills() called")
         try {
-            if (skillDao.getSkillById("calculator") != null) return
-
+            if (skillDao.getSkillById("calculator") != null) {
+                Logger.d(Logger.Tags.REPO, "Default skills already exist, skipping")
+                return
+            }
+            
             val defaultSkills = listOf(
                 // ========== 效率类 (PRODUCTIVITY) ==========
                 SkillEntity(
@@ -165,16 +187,16 @@ class SkillRepository @Inject constructor(
                     isBuiltIn = true,
                     downloadUrl = null,
                     installedSize = 0L,
-                    systemPrompt = "你是一位专业的中文翻译官，精通多种语言的文化和表达习惯。请遵循以下原则：1. 准确理解原文含义 2. 译文符合目标语言习惯 3. 注意文化差异 4. 保持原文语气风格 5. 专业术语使用约定俗成翻译 6. 有歧义提供多种方案。请用中文回复。",
-                    scenarios = "中英互译、文档翻译、邮件翻译、合同翻译、旅游对话",
+                    systemPrompt = "你是一位专业的中文翻译官，精通多种语言的文化和表达习惯。请遵循以下原则：1. 准确理解原文含义 2. 译文符合目标语言习惯 3. 注意文化差异 4. 保持原文语气风格 5. 专业术语准确翻译 6. 提供多种翻译版本。请用中文回复。",
+                    scenarios = "文档翻译、邮件翻译、网站本地化、合同翻译",
                     isActive = false,
                     isAvailable = true
                 ),
                 SkillEntity(
                     id = "email-writer",
-                    name = "邮件助手",
-                    description = "商务邮件撰写、格式规范、语气调整",
-                    detailedDescription = "快速撰写专业的商务邮件，自动调整语气和格式。",
+                    name = "邮件撰写",
+                    description = "商务邮件、工作邮件撰写和回复",
+                    detailedDescription = "帮助撰写专业的商务邮件和工作邮件。",
                     icon = "email",
                     category = SkillCategory.PRODUCTIVITY.name,
                     version = "1.0",
@@ -184,7 +206,7 @@ class SkillRepository @Inject constructor(
                     isBuiltIn = true,
                     downloadUrl = null,
                     installedSize = 0L,
-                    systemPrompt = "你是一位专业的职场邮件撰写助手。请遵循以下原则：1. 规范邮件格式 2. 根据场景调整语气 3. 开头明确目的 4. 内容简洁有条理 5. 避免口语化表达 6. 可提供多个版本。请用中文回复。",
+                    systemPrompt = "你是一位专业的邮件撰写助手。请遵循以下原则：1. 语言专业得体 2. 结构清晰有条理 3. 根据收件人和场景调整语气 4. 突出重点信息 5. 结尾礼貌友好。请用中文回复。",
                     scenarios = "商务邮件、工作汇报、申请邮件、道歉邮件、节日祝福",
                     isActive = false,
                     isAvailable = true
@@ -208,7 +230,6 @@ class SkillRepository @Inject constructor(
                     isActive = false,
                     isAvailable = true
                 ),
-
                 // ========== 创意类 (CREATIVE) ==========
                 SkillEntity(
                     id = "storyteller",
@@ -286,7 +307,6 @@ class SkillRepository @Inject constructor(
                     isActive = false,
                     isAvailable = true
                 ),
-
                 // ========== 学习类 (LEARNING) ==========
                 SkillEntity(
                     id = "tutor",
@@ -364,7 +384,6 @@ class SkillRepository @Inject constructor(
                     isActive = false,
                     isAvailable = true
                 ),
-
                 // ========== 工具类 (UTILITY) ==========
                 SkillEntity(
                     id = "calculator",
@@ -423,7 +442,6 @@ class SkillRepository @Inject constructor(
                     isActive = false,
                     isAvailable = true
                 ),
-
                 // ========== 生活类 (LIFESTYLE) ==========
                 SkillEntity(
                     id = "recipe-advisor",
@@ -502,13 +520,14 @@ class SkillRepository @Inject constructor(
                     isAvailable = true
                 )
             )
-
+            
             defaultSkills.forEach { skillDao.insert(it) }
+            Logger.i(Logger.Tags.REPO, "insertDefaultSkills success: ${defaultSkills.size} skills inserted")
         } catch (e: Exception) {
-            Log.e(TAG, "Error inserting default skills", e)
+            Logger.e(Logger.Tags.REPO, "insertDefaultSkills failed", e)
         }
     }
-
+    
     private fun SkillEntity.toDomain(): Skill {
         val permissionsList = try {
             permissions.removeSurrounding("[", "]")
@@ -518,7 +537,6 @@ class SkillRepository @Inject constructor(
         } catch (e: Exception) {
             emptyList()
         }
-
         return Skill(
             id = id,
             name = name,
