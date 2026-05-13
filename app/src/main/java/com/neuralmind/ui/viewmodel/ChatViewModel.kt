@@ -186,7 +186,7 @@ content<|im_end|>
         sb.append("你是NeuralMind AI助手，一个运行在本地设备上的智能助手。")
         
         // Inject active skill prompts first
-        val activeSkillPrompts = skillRepository.getActiveSystemPrompts()
+        val activeSkillPrompts = try { skillRepository.getActiveSystemPrompts() } catch (e: Exception) { "" }
         if (activeSkillPrompts.isNotBlank()) {
             sb.append(activeSkillPrompts)
         }
