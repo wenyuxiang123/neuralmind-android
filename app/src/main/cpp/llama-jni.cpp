@@ -142,12 +142,13 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
 
     LOGI("Loading model from: %s", path);
 
-    // Set model parameters (b9128: n_ctx/n_threads/numa moved to context params)
+    // Set model parameters
+    // NOTE: In llama.cpp b9128, llama_model_params no longer has n_ctx, n_batch,
+    // n_threads, n_threads_batch, or numa. Those belong to llama_context_params.
     llama_model_params params = llama_model_default_params();
     params.n_gpu_layers = 0;  // CPU-only (no GPU offload)
-    params.n_threads = 4;       // CPU threads for model loading
 
-    // Load the model (new API: llama_model_load_from_file)
+    // Load the model
     engine->model = llama_model_load_from_file(path, params);
 
     if (!engine->model) {
@@ -156,7 +157,7 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
         return JNI_FALSE;
     }
 
-    // Initialize context (n_ctx/n_threads/numa are now in context params)
+    // Initialize context (thread/context params are in context_params, not model_params)
     llama_context_params ctx_params = llama_context_default_params();
     ctx_params.n_ctx = 2048;
     ctx_params.n_batch = 512;
@@ -281,10 +282,10 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     LOGI("Generating for prompt (len=%d), maxTokens=%d, temp=%.2f",
          (int)strlen(promptStr), maxTokens, temperature);
 
-    // Get vocab from model (new API)
+    // Get vocab from model
     const llama_vocab* vocab = llama_model_get_vocab(engine->model);
 
-    // Tokenize prompt
+    // Tokenize prompt using new vocab-based API
     std::vector<llama_token> promptTokens(llama_vocab_n_tokens(vocab) * 2 + 1);
     int nPromptTokens = llama_tokenize(
         vocab,
@@ -324,15 +325,15 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         return cstringToJString(env, "Error: Failed to decode prompt");
     }
 
-    // Build sampler chain (new API: sampler chain system)
+    // Build sampler chain using new sampler API
     llama_sampler_chain_params chainParams = llama_sampler_chain_default_params();
     chainParams.no_perf = true;
     struct llama_sampler* smpl = llama_sampler_chain_init(chainParams);
 
-    // Order matters: temperature -> top_k -> top_p -> penalties -> distribution
+    // Order matters: temp -> top_k -> top_p -> penalties -> distribution
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
-    // b9128: llama_sampler_init_top_p takes (float p, size_t min_keep)
+    // llama_sampler_init_top_p takes (float p, size_t min_keep)
     llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, 1));
     llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
         topK,             // penalty_last_n
@@ -365,29 +366,28 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
             }
         }
 
-        // Sample next token using sampler chain (new API)
+        // Sample next token using sampler chain
         newToken = llama_sampler_sample(smpl, engine->context, -1);
 
-        // Check for EOS (new API: llama_vocab_is_eog)
+        // Check for EOS using new vocab API
         if (llama_vocab_is_eog(vocab, newToken)) {
             LOGI("Generated EOS token");
             break;
         }
 
-        // Convert token to piece (new API)
+        // Convert token to piece using new vocab API
         char tokenBuf[128] = {0};
-        int nWritten = llama_token_to_piece(vocab, newToken, tokenBuf, (int)sizeof(tokenBuf), 0, false);
+        int nWritten = llama_token_to_piece(
+            vocab, newToken, tokenBuf, (int)sizeof(tokenBuf), 0, false);
         if (nWritten > 0) {
             generatedText += tokenBuf;
         }
 
-        // Accept token in sampler (updates internal state for repetition penalty)
+        // Accept token in sampler to update repetition penalty state
         llama_sampler_accept(smpl, newToken);
 
-        // Create batch for single new token
+        // Create batch for single new token and decode
         llama_batch singleBatch = llama_batch_get_one(&newToken, 1);
-
-        // Decode new token
         if (llama_decode(engine->context, singleBatch)) {
             llama_batch_free(singleBatch);
             break;
@@ -401,7 +401,7 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         }
     }
 
-    // Cleanup sampler chain
+    // Cleanup
     llama_sampler_free(smpl);
 
     engine->isGenerating = false;
