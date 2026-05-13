@@ -3,9 +3,9 @@ package com.neuralmind.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuralmind.data.repository.DeviceRepository
-import com.neuralmind.domain.model.AudioStream
-import com.neuralmind.domain.model.AutomationRule
+import com.neuralmind.device.AudioStream
 import com.neuralmind.device.DeviceController
+import com.neuralmind.domain.model.AutomationRule
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
