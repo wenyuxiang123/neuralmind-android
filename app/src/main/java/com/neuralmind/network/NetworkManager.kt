@@ -17,6 +17,8 @@ class NetworkManager @Inject constructor() {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(300, TimeUnit.SECONDS)   // 5分钟读超时，适合大文件
         .writeTimeout(30, TimeUnit.SECONDS)
+        .followRedirects(true)                  // 跟随 HTTP 重定向
+        .followSslRedirects(true)              // 跟随 HTTPS 重定向（镜像站可能跳转）
         .build()
 
     // 当前活跃的下载调用，用于取消
