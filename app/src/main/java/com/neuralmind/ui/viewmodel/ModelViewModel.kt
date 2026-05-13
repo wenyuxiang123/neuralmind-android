@@ -2,6 +2,7 @@ package com.neuralmind.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.neuralmind.core.Logger
 import com.neuralmind.data.repository.ModelRepository
 import com.neuralmind.domain.model.AIModel
 import com.neuralmind.domain.model.ModelCategory
@@ -14,21 +15,23 @@ import javax.inject.Inject
 class ModelViewModel @Inject constructor(
     private val modelRepository: ModelRepository
 ) : ViewModel() {
-
+    
     private val _uiState = MutableStateFlow(ModelUiState())
     val uiState: StateFlow<ModelUiState> = _uiState.asStateFlow()
-
+    
     val allModels = modelRepository.getAllModels()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
+    
     val installedModels = modelRepository.getInstalledModels()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
+    
     fun getModelsByCategory(category: ModelCategory): Flow<List<AIModel>> {
+        Logger.d(Logger.Tags.VM, "getModelsByCategory(category=${category.name})")
         return modelRepository.getModelsByCategory(category)
     }
-
+    
     fun downloadModel(modelId: String) {
+        Logger.d(Logger.Tags.VM, "downloadModel(modelId=$modelId)")
         viewModelScope.launch {
             _uiState.update { it.copy(downloadingModelId = modelId, downloadProgress = 0f) }
             
@@ -37,24 +40,34 @@ class ModelViewModel @Inject constructor(
                 _uiState.update { 
                     it.copy(downloadingModelId = null, downloadProgress = 1f) 
                 }
+                Logger.i(Logger.Tags.VM, "downloadModel success: $modelId")
             } catch (e: Exception) {
+                Logger.e(Logger.Tags.VM, "downloadModel failed: $modelId", e)
                 _uiState.update { 
                     it.copy(downloadingModelId = null, downloadProgress = 0f) 
                 }
             }
         }
     }
-
+    
     fun deleteModel(modelId: String) {
+        Logger.d(Logger.Tags.VM, "deleteModel(modelId=$modelId)")
         viewModelScope.launch {
-            modelRepository.deleteModel(modelId)
+            try {
+                modelRepository.deleteModel(modelId)
+                Logger.i(Logger.Tags.VM, "deleteModel success: $modelId")
+            } catch (e: Exception) {
+                Logger.e(Logger.Tags.VM, "deleteModel failed: $modelId", e)
+            }
         }
     }
-
+    
     fun selectModel(model: AIModel) {
+        Logger.d(Logger.Tags.VM, "selectModel(model=${model.name})")
         _uiState.update {
             it.copy(selectedModelId = model.id)
         }
+        Logger.i(Logger.Tags.VM, "selectModel success: ${model.name}")
     }
 }
 
