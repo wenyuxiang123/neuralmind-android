@@ -1,6 +1,6 @@
 package com.neuralmind.ui.screens.skills
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,35 +10,66 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuralmind.domain.model.Skill
+import com.neuralmind.domain.model.SkillCategory
 import com.neuralmind.ui.viewmodel.SkillViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SkillsScreen(
-    viewModel: SkillViewModel = hiltViewModel()
+    viewModel: SkillViewModel = hiltViewModel(),
+    onNavigateBack: () -> Unit = {}
 ) {
     val skills by viewModel.skills.collectAsState()
-    val executionResult by viewModel.executionResult.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-    
-    // 已实现的技能列表（可正常使用）
-    val implementedSkills = listOf("calculator", "system")
+    val selectedCategory by viewModel.selectedCategory.collectAsState()
+    val showInstalledOnly by viewModel.showInstalledOnly.collectAsState()
     
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
         TopAppBar(
-            title = { Text("技能中心") },
+            title = { Text("技能市场") },
+            navigationIcon = {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                }
+            },
             actions = {
-                IconButton(onClick = { viewModel.refreshSkills() }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                // 已安装筛选按钮
+                IconButton(onClick = { viewModel.toggleInstalledFilter() }) {
+                    Icon(
+                        if (showInstalledOnly) Icons.Default.FilterAlt else Icons.Default.FilterAltOff,
+                        contentDescription = "筛选已安装",
+                        tint = if (showInstalledOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         )
+        
+        // 分类 TabRow
+        ScrollableTabRow(
+            selectedTabIndex = SkillCategory.entries.indexOf(selectedCategory).coerceAtLeast(0),
+            edgePadding = 16.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Tab(
+                selected = selectedCategory == SkillCategory.PRODUCTIVITY,
+                onClick = { viewModel.selectCategory(SkillCategory.PRODUCTIVITY) },
+                text = { Text("全部") }
+            )
+            SkillCategory.entries.forEach { category ->
+                Tab(
+                    selected = selectedCategory == category,
+                    onClick = { viewModel.selectCategory(category) },
+                    text = { Text(getCategoryDisplayName(category)) }
+                )
+            }
+        }
         
         if (isLoading) {
             Box(
@@ -48,83 +79,71 @@ fun SkillsScreen(
                 CircularProgressIndicator()
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // 开发中提示
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                        )
+            val filteredSkills = skills
+                .filter { skill -> 
+                    (selectedCategory == SkillCategory.PRODUCTIVITY || skill.category == selectedCategory) &&
+                    (!showInstalledOnly || skill.isInstalled)
+                }
+            
+            if (filteredSkills.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                "部分技能正在开发中，敬请期待！",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
-                        }
+                        Icon(
+                            Icons.Default.SearchOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            if (showInstalledOnly) "暂无已安装的技能" else "暂无相关技能",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
-                
-                items(skills, key = { it.id }) { skill ->
-                    val isImplemented = implementedSkills.contains(skill.id)
-                    SkillCard(
-                        skill = skill,
-                        isInstalled = skill.isInstalled,
-                        isImplemented = isImplemented,
-                        onInstall = { viewModel.installSkill(skill.id) },
-                        onUninstall = { viewModel.uninstallSkill(skill.id) },
-                        onLaunch = { viewModel.launchSkill(skill) }
-                    )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(filteredSkills, key = { it.id }) { skill ->
+                        SkillCard(
+                            skill = skill,
+                            onInstall = { viewModel.installSkill(skill.id) },
+                            onUninstall = { viewModel.uninstallSkill(skill.id) },
+                            onActivate = { viewModel.activateSkill(skill.id) },
+                            onDeactivate = { viewModel.deactivateSkill(skill.id) }
+                        )
+                    }
                 }
             }
-        }
-        
-        // 执行结果弹窗
-        executionResult?.let { result ->
-            AlertDialog(
-                onDismissRequest = { viewModel.clearExecutionResult() },
-                title = { Text("执行结果") },
-                text = { Text(result) },
-                confirmButton = {
-                    TextButton(onClick = { viewModel.clearExecutionResult() }) {
-                        Text("确定")
-                    }
-                }
-            )
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SkillCard(
     skill: Skill,
-    isInstalled: Boolean,
-    isImplemented: Boolean,
     onInstall: () -> Unit,
     onUninstall: () -> Unit,
-    onLaunch: () -> Unit
+    onActivate: () -> Unit,
+    onDeactivate: () -> Unit
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = isInstalled && isImplemented) { onLaunch() },
-        colors = CardDefaults.cardColors()
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (skill.isActive) 
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            else 
+                MaterialTheme.colorScheme.surface
+        )
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -132,46 +151,59 @@ fun SkillCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = when (skill.category) {
-                            "productivity" -> Icons.Default.Work
-                            "lifestyle" -> Icons.Default.Lifestyle
-                            "system" -> Icons.Default.Settings
-                            else -> Icons.Default.Widgets
-                        },
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                    // 技能图标
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = getCategoryColor(skill.category).copy(alpha = 0.15f),
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = getSkillIcon(skill.icon),
+                                contentDescription = null,
+                                tint = getCategoryColor(skill.category),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                    
                     Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                    
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = skill.name,
-                                style = MaterialTheme.typography.titleMedium
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
                             )
-                            if (!isImplemented) {
+                            
+                            if (skill.isActive) {
                                 Spacer(modifier = Modifier.width(8.dp))
-                                SuggestionChip(
-                                    onClick = { },
-                                    label = { Text("即将推出", style = MaterialTheme.typography.labelSmall) },
-                                    colors = SuggestionChipDefaults.suggestionChipColors(
-                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                                Surface(
+                                    shape = MaterialTheme.shapes.small,
+                                    color = MaterialTheme.colorScheme.primary
+                                ) {
+                                    Text(
+                                        text = "已启用",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
-                                )
+                                }
                             }
                         }
+                        
                         Spacer(modifier = Modifier.height(4.dp))
+                        
                         Text(
                             text = skill.description,
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
@@ -180,54 +212,173 @@ fun SkillCard(
                 }
             }
             
-            Spacer(modifier = Modifier.height(12.dp))
+            // 适用场景
+            if (skill.scenarios.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "适用: ${skill.scenarios}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             
-            // 操作按钮区域
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // 作者和版本
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (!isInstalled) {
-                    Button(
-                        onClick = onInstall,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("安装")
-                    }
-                } else {
-                    OutlinedButton(
-                        onClick = onUninstall,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("卸载")
-                    }
-                    
-                    if (isImplemented) {
-                        Button(
-                            onClick = onLaunch,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("启动")
-                        }
-                    } else {
-                        Button(
-                            onClick = { },
-                            enabled = false,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.HourglassTop, contentDescription = null)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("即将推出")
-                        }
-                    }
+                Text(
+                    text = "作者: ${skill.author} · v${skill.version}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // 操作按钮
+            SkillActionButtons(
+                skill = skill,
+                onInstall = onInstall,
+                onUninstall = onUninstall,
+                onActivate = onActivate,
+                onDeactivate = onDeactivate
+            )
+        }
+    }
+}
+
+@Composable
+fun SkillActionButtons(
+    skill: Skill,
+    onInstall: () -> Unit,
+    onUninstall: () -> Unit,
+    onActivate: () -> Unit,
+    onDeactivate: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        when {
+            !skill.isAvailable -> {
+                // 即将推出
+                OutlinedButton(
+                    onClick = { },
+                    enabled = false,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.HourglassTop, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("即将推出")
+                }
+            }
+            !skill.isInstalled -> {
+                // 未安装 - 显示安装按钮
+                Button(
+                    onClick = onInstall,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("安装")
+                }
+            }
+            skill.isInstalled && !skill.isActive -> {
+                // 已安装但未激活 - 显示启用按钮
+                Button(
+                    onClick = onActivate,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("启用")
+                }
+                OutlinedButton(
+                    onClick = onUninstall,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("卸载")
+                }
+            }
+            skill.isActive -> {
+                // 已激活 - 显示已启用状态和停用按钮
+                Button(
+                    onClick = { },
+                    enabled = false,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        disabledContainerColor = MaterialTheme.colorScheme.primary,
+                        disabledContentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("已启用")
+                }
+                OutlinedButton(
+                    onClick = onDeactivate,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.PauseCircle, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("停用")
                 }
             }
         }
+    }
+}
+
+fun getCategoryDisplayName(category: SkillCategory): String {
+    return when (category) {
+        SkillCategory.PRODUCTIVITY -> "全部"
+        SkillCategory.UTILITY -> "工具"
+        SkillCategory.PRODUCTIVITY -> "效率"
+        SkillCategory.CREATIVE -> "创意"
+        SkillCategory.LEARNING -> "学习"
+        SkillCategory.LIFESTYLE -> "生活"
+    }
+}
+
+fun getCategoryColor(category: SkillCategory): androidx.compose.ui.graphics.Color {
+    return when (category) {
+        SkillCategory.PRODUCTIVITY -> androidx.compose.ui.graphics.Color(0xFF1976D2)
+        SkillCategory.UTILITY -> androidx.compose.ui.graphics.Color(0xFF388E3C)
+        SkillCategory.CREATIVE -> androidx.compose.ui.graphics.Color(0xFF7B1FA2)
+        SkillCategory.LEARNING -> androidx.compose.ui.graphics.Color(0xFFE64A19)
+        SkillCategory.LIFESTYLE -> androidx.compose.ui.graphics.Color(0xFF00796B)
+    }
+}
+
+fun getSkillIcon(iconName: String): androidx.compose.ui.graphics.vector.ImageVector {
+    return when (iconName) {
+        "edit_note" -> Icons.Default.Edit
+        "compress" -> Icons.Default.Compress
+        "translate" -> Icons.Default.Translate
+        "email" -> Icons.Default.Email
+        "event_note" -> Icons.Default.EventNote
+        "auto_stories" -> Icons.Default.AutoStories
+        "create" -> Icons.Default.Create
+        "lightbulb" -> Icons.Default.Lightbulb
+        "campaign" -> Icons.Default.Campaign
+        "school" -> Icons.Default.School
+        "style" -> Icons.Default.Style
+        "quiz" -> Icons.Default.Quiz
+        "question_answer" -> Icons.Default.QuestionAnswer
+        "calculate" -> Icons.Default.Calculate
+        "code" -> Icons.Default.Code
+        "data_object" -> Icons.Default.DataObject
+        "restaurant" -> Icons.Default.Restaurant
+        "flight" -> Icons.Default.Flight
+        "fitness_center" -> Icons.Default.FitnessCenter
+        "schedule" -> Icons.Default.Schedule
+        else -> Icons.Default.Widgets
     }
 }
