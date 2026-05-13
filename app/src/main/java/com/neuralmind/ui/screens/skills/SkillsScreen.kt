@@ -19,6 +19,8 @@ import com.neuralmind.domain.model.Skill
 import com.neuralmind.domain.model.SkillCategory
 import com.neuralmind.ui.viewmodel.SkillViewModel
 
+private val ALL_TAB_INDEX = -1
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SkillsScreen(
@@ -29,6 +31,8 @@ fun SkillsScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val showInstalledOnly by viewModel.showInstalledOnly.collectAsState()
+    
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
     
     Column(
         modifier = Modifier.fillMaxSize()
@@ -51,16 +55,20 @@ fun SkillsScreen(
             }
         )
         
+        val tabs = listOf("全部", "效率", "创意", "学习", "工具", "生活")
         ScrollableTabRow(
-            selectedTabIndex = TabIndex.entries.indexOfFirst { it.category == selectedCategory }.coerceAtLeast(0),
+            selectedTabIndex = selectedTabIndex,
             edgePadding = 16.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
-            TabIndex.entries.forEach { tab ->
+            tabs.forEachIndexed { index, title ->
                 Tab(
-                    selected = selectedCategory == tab.category,
-                    onClick = { viewModel.selectCategory(tab.category) },
-                    text = { Text(tab.displayName) }
+                    selected = selectedTabIndex == index,
+                    onClick = { 
+                        selectedTabIndex = index
+                        viewModel.selectCategoryByIndex(index)
+                    },
+                    text = { Text(title) }
                 )
             }
         }
@@ -75,8 +83,16 @@ fun SkillsScreen(
         } else {
             val filteredSkills = skills
                 .filter { skill -> 
-                    (selectedCategory == SkillCategory.PRODUCTIVITY || skill.category == selectedCategory) &&
-                    (!showInstalledOnly || skill.isInstalled)
+                    val categoryMatch = when (selectedTabIndex) {
+                        0 -> true // 全部
+                        1 -> skill.category == SkillCategory.PRODUCTIVITY
+                        2 -> skill.category == SkillCategory.CREATIVE
+                        3 -> skill.category == SkillCategory.LEARNING
+                        4 -> skill.category == SkillCategory.UTILITY
+                        5 -> skill.category == SkillCategory.LIFESTYLE
+                        else -> true
+                    }
+                    categoryMatch && (!showInstalledOnly || skill.isInstalled)
                 }
             
             if (filteredSkills.isEmpty()) {
@@ -120,15 +136,6 @@ fun SkillsScreen(
             }
         }
     }
-}
-
-private enum class TabIndex(val category: SkillCategory, val displayName: String) {
-    ALL(SkillCategory.PRODUCTIVITY, "全部"),
-    PRODUCTIVITY(SkillCategory.PRODUCTIVITY, "效率"),
-    CREATIVE(SkillCategory.CREATIVE, "创意"),
-    LEARNING(SkillCategory.LEARNING, "学习"),
-    UTILITY(SkillCategory.UTILITY, "工具"),
-    LIFESTYLE(SkillCategory.LIFESTYLE, "生活")
 }
 
 @Composable
