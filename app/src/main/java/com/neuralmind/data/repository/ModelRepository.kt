@@ -167,7 +167,7 @@ class ModelRepository @Inject constructor(
                 minStorage = 3072,
                 recommendedRam = 4096,
                 supportsGpu = true,
-                supportsNnapi = False
+                supportsNnapi = false
             ),
             ModelEntity(
                 id = "mistral-7b",
@@ -183,7 +183,7 @@ class ModelRepository @Inject constructor(
                 minStorage = 6144,
                 recommendedRam = 6144,
                 supportsGpu = true,
-                supportsNnapi = False
+                supportsNnapi = false
             ),
             ModelEntity(
                 id = "llama3.1-8b",
@@ -199,7 +199,7 @@ class ModelRepository @Inject constructor(
                 minStorage = 7168,
                 recommendedRam = 8192,
                 supportsGpu = true,
-                supportsNnapi = False
+                supportsNnapi = false
             ),
             // Code models - 专业代码生成模型
             ModelEntity(
@@ -216,7 +216,7 @@ class ModelRepository @Inject constructor(
                 minStorage = 3584,
                 recommendedRam = 4096,
                 supportsGpu = true,
-                supportsNnapi = False
+                supportsNnapi = false
             ),
             ModelEntity(
                 id = "qwen2.5-coder-1.5b",
@@ -232,7 +232,7 @@ class ModelRepository @Inject constructor(
                 minStorage = 1536,
                 recommendedRam = 2048,
                 supportsGpu = true,
-                supportsNnapi = False
+                supportsNnapi = false
             )
         )
         defaultModels.forEach { modelDao.insert(it) }
