@@ -15,9 +15,17 @@ class NetworkManager @Inject constructor() {
 
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(300, TimeUnit.SECONDS)   // 5分钟读超时，适合大文件
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    // 当前活跃的下载调用，用于取消
+    private val activeCalls = mutableMapOf<String, okhttp3.Call>()
+
+    fun cancelDownload(downloadId: String) {
+        activeCalls[downloadId]?.cancel()
+        activeCalls.remove(downloadId)
+    }
 
     fun createRequest(url: String): Request {
         return Request.Builder()
@@ -32,28 +40,55 @@ class NetworkManager @Inject constructor() {
     suspend fun downloadFile(
         url: String,
         targetFile: File,
+        downloadId: String = url,
         progressCallback: (Long, Long) -> Unit = { _, _ -> }
     ): Result<File> = runCatching {
-        val request = createRequest(url)
-        val response = client.newCall(request).execute()
+        var downloadedBytes = 0L
         
-        if (!response.isSuccessful) {
+        // 断点续传：检查已下载的部分
+        if (targetFile.exists() && targetFile.length() > 0) {
+            downloadedBytes = targetFile.length()
+        }
+        
+        val requestBuilder = Request.Builder().url(url)
+        if (downloadedBytes > 0) {
+            requestBuilder.header("Range", "bytes=$downloadedBytes-")
+        }
+        
+        val request = requestBuilder.build()
+        val call = client.newCall(request)
+        activeCalls[downloadId] = call
+        
+        val response = call.execute()
+        activeCalls.remove(downloadId)
+        
+        if (!response.isSuccessful && response.code != 206) {
             throw IOException("Download failed: ${response.code}")
         }
-
+        
         val body = response.body ?: throw IOException("Empty response body")
-        val totalBytes = body.contentLength()
-        var downloadedBytes = 0L
-
-        // 确保父目录存在
+        
+        // 计算总大小
+        val totalBytes = if (response.code == 206) {
+            // 部分内容响应，从 Content-Range 获取总大小
+            val contentRange = response.header("Content-Range")
+            val totalFromRange = contentRange?.let {
+                val match = Regex("""bytes \d+-\d+/(\d+)""").find(it)
+                match?.groupValues?.get(1)?.toLongOrNull()
+            }
+            totalFromRange ?: (downloadedBytes + body.contentLength())
+        } else {
+            body.contentLength()
+        }
+        
+        // 追加写入（断点续传时追加，否则覆盖）
+        val append = downloadedBytes > 0 && response.code == 206
+        
         targetFile.parentFile?.mkdirs()
-
-        // 保存到文件
-        targetFile.outputStream().use { output ->
+        targetFile.outputStream(append).use { output ->
             body.byteStream().use { input ->
                 val buffer = ByteArray(8192)
                 var bytesRead: Int
-                
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
                     downloadedBytes += bytesRead
@@ -61,7 +96,7 @@ class NetworkManager @Inject constructor() {
                 }
             }
         }
-
+        
         targetFile
     }
 
