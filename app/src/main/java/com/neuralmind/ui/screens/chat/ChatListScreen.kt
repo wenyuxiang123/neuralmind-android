@@ -36,9 +36,10 @@ fun ChatListScreen(
     var showNewConversationDialog by remember { mutableStateOf(false) }
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
             .background(brush = Brush.verticalGradient(colors = listOf(BackgroundPrimary, Color(0xFF0A1628))))
-    {
+    ) {
         if (conversations.isEmpty()) {
             EmptyChatState(onNewConversation = { showNewConversationDialog = true })
         } else {
