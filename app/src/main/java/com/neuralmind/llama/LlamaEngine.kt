@@ -1,6 +1,7 @@
 package com.neuralmind.llama
 
 import android.content.Context
+import com.neuralmind.core.Logger
 import com.neuralmind.data.repository.ModelRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -20,83 +21,108 @@ class LlamaEngine @Inject constructor(
     private val modelRepository: ModelRepository,
     private val llamaJNI: LlamaJNI
 ) {
+    
     private var engineId: Long = 0
-
     private val _tokenFlow = MutableSharedFlow<String>()
     val tokenFlow: Flow<String> = _tokenFlow
-
+    
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating
-
+    
     private val _isModelLoaded = MutableStateFlow(false)
     val isModelLoaded: StateFlow<Boolean> = _isModelLoaded
-
+    
     private var currentModelPath: String? = null
     private var currentModelId: String? = null
     
     private val _inferenceConfig = MutableStateFlow(InferenceConfig())
     val inferenceConfig: StateFlow<InferenceConfig> = _inferenceConfig
-
+    
     private var engineInitialized = false
-
+    
     /**
      * Lazily initialize the engine. Called before any operation that needs engineId.
-     * Moved out of init{} to prevent crash during Hilt injection at app startup.
      */
     private fun ensureEngineInitialized() {
         if (!engineInitialized) {
             try {
+                Logger.d(Logger.Tags.ENGINE, "ensureEngineInitialized: creating engine")
                 engineId = LlamaJNI.createEngine()
                 engineInitialized = true
+                Logger.i(Logger.Tags.ENGINE, "ensureEngineInitialized: success, engineId=$engineId")
             } catch (e: Exception) {
+                Logger.e(Logger.Tags.ENGINE, "ensureEngineInitialized: createEngine failed", e)
                 _isModelLoaded.value = false
             } catch (e: UnsatisfiedLinkError) {
+                Logger.e(Logger.Tags.ENGINE, "ensureEngineInitialized: native library not loaded", e)
                 _isModelLoaded.value = false
             }
         }
     }
-
+    
     suspend fun loadModel(modelId: String): Boolean {
+        Logger.d(Logger.Tags.ENGINE, "loadModel(modelId=$modelId)")
+        
         val modelPath = modelRepository.getModelPath(modelId)
+        if (modelPath == null) {
+            Logger.w(Logger.Tags.ENGINE, "loadModel: model path not found for $modelId")
+            return false
+        }
         
         try {
             ensureEngineInitialized()
             if (!engineInitialized) return false
-            val loaded = LlamaJNI.loadModel(engineId, modelPath ?: "default")
+            
+            Logger.d(Logger.Tags.ENGINE, "loadModel: loading from $modelPath")
+            val loaded = LlamaJNI.loadModel(engineId, modelPath)
+            
             _isModelLoaded.value = loaded
             if (loaded) {
                 currentModelPath = modelPath
                 currentModelId = modelId
+                Logger.i(Logger.Tags.ENGINE, "loadModel success: $modelId from $modelPath")
+            } else {
+                Logger.w(Logger.Tags.ENGINE, "loadModel failed: $modelId")
             }
+            
             return loaded
         } catch (e: Exception) {
+            Logger.e(Logger.Tags.ENGINE, "loadModel exception: $modelId", e)
             _isModelLoaded.value = false
             return false
         }
     }
-
+    
     fun unloadModel() {
-        LlamaJNI.unloadModel(engineId)
-        _isModelLoaded.value = false
-        currentModelPath = null
-        currentModelId = null
+        Logger.d(Logger.Tags.ENGINE, "unloadModel(currentModelId=$currentModelId)")
+        try {
+            LlamaJNI.unloadModel(engineId)
+            _isModelLoaded.value = false
+            currentModelPath = null
+            currentModelId = null
+            Logger.i(Logger.Tags.ENGINE, "unloadModel success")
+        } catch (e: Exception) {
+            Logger.e(Logger.Tags.ENGINE, "unloadModel failed", e)
+        }
     }
-
+    
     fun getSupportedModels(): Array<String> {
+        Logger.d(Logger.Tags.ENGINE, "getSupportedModels()")
         return try {
             LlamaJNI.getSupportedModels()
         } catch (e: Exception) {
+            Logger.e(Logger.Tags.ENGINE, "getSupportedModels failed", e)
             emptyArray()
         }
     }
-
+    
     fun updateConfig(newConfig: InferenceConfig) {
+        Logger.d(Logger.Tags.ENGINE, "updateConfig(maxTokens=${newConfig.maxTokens}, temp=${newConfig.temperature})")
         _inferenceConfig.value = newConfig
     }
-
+    
     /**
      * Generate with streaming callback - uses true streaming via generateStream JNI method.
-     * Each token is delivered to onToken as soon as it's generated.
      */
     suspend fun generate(
         prompt: String,
@@ -105,20 +131,24 @@ class LlamaEngine @Inject constructor(
         onError: (String) -> Unit,
         config: InferenceConfig = _inferenceConfig.value
     ) = withContext(Dispatchers.IO) {
+        Logger.d(Logger.Tags.ENGINE, "generate: starting inference, prompt=${prompt.take(50)}...")
+        
         _isGenerating.value = true
-
         try {
             ensureEngineInitialized()
             if (!engineInitialized) {
+                Logger.w(Logger.Tags.ENGINE, "generate: engine not initialized")
                 onError("推理引擎初始化失败")
                 _isGenerating.value = false
                 return@withContext
             }
+            
             // Set token callback for streaming
             LlamaJNI._tokenCallback = onToken
-
+            
             // Use streaming JNI method
             val response = try {
+                Logger.d(Logger.Tags.ENGINE, "generate: calling generateStream")
                 llamaJNI.generateStream(
                     engineId,
                     prompt,
@@ -130,34 +160,39 @@ class LlamaEngine @Inject constructor(
                     config.stopSequence
                 )
             } catch (e: Exception) {
+                Logger.e(Logger.Tags.ENGINE, "generate: generateStream failed, using fallback", e)
                 getFallbackResponse(prompt, config)
             }
-
+            
+            Logger.d(Logger.Tags.ENGINE, "generate: completed, ${response.length} chars")
             onComplete(response)
         } catch (e: Exception) {
+            Logger.e(Logger.Tags.ENGINE, "generate error: ${e.message}", e)
             onError(e.message ?: "生成过程中出错")
         } finally {
             LlamaJNI._tokenCallback = null
             _isGenerating.value = false
         }
     }
-
+    
     /**
      * Generate with Flow-based streaming - uses true streaming.
-     * Tokens are emitted to tokenFlow as they are generated.
      */
     suspend fun generate(
         prompt: String,
         config: InferenceConfig = _inferenceConfig.value
     ): String {
+        Logger.d(Logger.Tags.ENGINE, "generate (Flow): prompt=${prompt.take(50)}...")
+        
         _isGenerating.value = true
-
         try {
             ensureEngineInitialized()
             if (!engineInitialized) {
+                Logger.w(Logger.Tags.ENGINE, "generate (Flow): engine not initialized")
                 _isGenerating.value = false
                 return getFallbackResponse(prompt, config)
             }
+            
             // Use streaming JNI method with flow emission
             LlamaJNI._tokenCallback = { token ->
                 // Emit token to flow from IO thread
@@ -165,7 +200,7 @@ class LlamaEngine @Inject constructor(
                     _tokenFlow.emit(token)
                 }
             }
-
+            
             val response = try {
                 llamaJNI.generateStream(
                     engineId,
@@ -178,25 +213,27 @@ class LlamaEngine @Inject constructor(
                     config.stopSequence
                 )
             } catch (e: Exception) {
+                Logger.e(Logger.Tags.ENGINE, "generate (Flow): failed, using fallback", e)
                 getFallbackResponse(prompt, config)
             }
-
+            
             return response
         } finally {
             LlamaJNI._tokenCallback = null
             _isGenerating.value = false
         }
     }
-
+    
     fun stopGeneration() {
+        Logger.d(Logger.Tags.ENGINE, "stopGeneration()")
         try {
             LlamaJNI.stopGeneration(engineId)
         } catch (e: Exception) {
-            // 忽略错误
+            Logger.e(Logger.Tags.ENGINE, "stopGeneration failed", e)
         }
         _isGenerating.value = false
     }
-
+    
     private fun getFallbackResponse(prompt: String, config: InferenceConfig): String {
         return when {
             prompt.contains("你好") || prompt.contains("hi") || prompt.contains("Hello") -> {
@@ -237,8 +274,9 @@ class LlamaEngine @Inject constructor(
             }
         }
     }
-
+    
     fun getModelInfo(): ModelInfo? {
+        Logger.d(Logger.Tags.ENGINE, "getModelInfo(currentModelId=$currentModelId)")
         return currentModelPath?.let { path ->
             ModelInfo(
                 modelId = currentModelId ?: "",
@@ -258,8 +296,6 @@ data class InferenceConfig(
     val topK: Int = 40,
     val repeatPenalty: Float = 1.1f,
     val stopSequence: String? = null
-    // Note: stream, tokenChunkSize, tokenDelayMs are removed from config
-    // since we now have true streaming via generateStream JNI method
 )
 
 data class ModelInfo(
