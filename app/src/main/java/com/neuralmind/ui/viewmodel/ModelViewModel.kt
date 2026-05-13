@@ -24,12 +24,6 @@ class ModelViewModel @Inject constructor(
     val installedModels = modelRepository.getInstalledModels()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    init {
-        viewModelScope.launch {
-            modelRepository.insertDefaultModels()
-        }
-    }
-
     fun getModelsByCategory(category: ModelCategory): Flow<List<AIModel>> {
         return modelRepository.getModelsByCategory(category)
     }
