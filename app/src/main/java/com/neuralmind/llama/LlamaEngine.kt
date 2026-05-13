@@ -77,6 +77,10 @@ class LlamaEngine @Inject constructor(
         _inferenceConfig.value = newConfig
     }
 
+    /**
+     * Generate with streaming callback - uses true streaming via generateStream JNI method.
+     * Each token is delivered to onToken as soon as it's generated.
+     */
     suspend fun generate(
         prompt: String,
         onToken: (String) -> Unit,
@@ -87,9 +91,12 @@ class LlamaEngine @Inject constructor(
         _isGenerating.value = true
 
         try {
-            // 使用JNI调用C++推理引擎
+            // Set token callback for streaming
+            LlamaJNI._tokenCallback = onToken
+
+            // Use streaming JNI method
             val response = try {
-                llamaJNI.generate(
+                llamaJNI.generateStream(
                     engineId,
                     prompt,
                     config.maxTokens,
@@ -100,25 +107,22 @@ class LlamaEngine @Inject constructor(
                     config.stopSequence
                 )
             } catch (e: Exception) {
-                // 如果JNI调用失败，使用模拟响应
                 getFallbackResponse(prompt, config)
-            }
-
-            if (config.stream) {
-                response.chunked(config.tokenChunkSize).forEach { token ->
-                    onToken(token)
-                    delay(config.tokenDelayMs)
-                }
             }
 
             onComplete(response)
         } catch (e: Exception) {
             onError(e.message ?: "生成过程中出错")
         } finally {
+            LlamaJNI._tokenCallback = null
             _isGenerating.value = false
         }
     }
 
+    /**
+     * Generate with Flow-based streaming - uses true streaming.
+     * Tokens are emitted to tokenFlow as they are generated.
+     */
     suspend fun generate(
         prompt: String,
         config: InferenceConfig = _inferenceConfig.value
@@ -126,9 +130,16 @@ class LlamaEngine @Inject constructor(
         _isGenerating.value = true
 
         try {
-            // 使用JNI调用C++推理引擎
+            // Use streaming JNI method with flow emission
+            LlamaJNI._tokenCallback = { token ->
+                // Emit token to flow from IO thread
+                kotlinx.coroutines.runBlocking {
+                    _tokenFlow.emit(token)
+                }
+            }
+
             val response = try {
-                llamaJNI.generate(
+                llamaJNI.generateStream(
                     engineId,
                     prompt,
                     config.maxTokens,
@@ -139,19 +150,12 @@ class LlamaEngine @Inject constructor(
                     config.stopSequence
                 )
             } catch (e: Exception) {
-                // 如果JNI调用失败，使用模拟响应
                 getFallbackResponse(prompt, config)
-            }
-
-            if (config.stream) {
-                response.chunked(config.tokenChunkSize).forEach { token ->
-                    _tokenFlow.emit(token)
-                    delay(config.tokenDelayMs)
-                }
             }
 
             return response
         } finally {
+            LlamaJNI._tokenCallback = null
             _isGenerating.value = false
         }
     }
@@ -177,7 +181,7 @@ class LlamaEngine @Inject constructor(
                 "当前使用的是本地模型，所有推理都在设备上运行，完全保护您的隐私。\n\n模型配置：\n- Max Tokens: ${config.maxTokens}\n- Temperature: ${config.temperature}\n- Top P: ${config.topP}\n- Top K: ${config.topK}"
             }
             prompt.contains("记忆") || prompt.contains("记住") -> {
-                "我有九层记忆系统：\n\n1. 工作记忆\n2. 短期记忆\n3. 会话记忆\n4. 日程记忆\n5. 个人信息\n6. 偏好记忆\n7. 知识记忆\n8. 习惯记忆\n9. 深度记忆\n\n我会根据您的输入自动激活相应的记忆层。"
+                "我有九层记忆系统：\n\n1. 工作记忆\n2. 短期记忆\n3. 会话记忆\n4. 日程记忆\n5. 个人信心\n6. 偏好记忆\n7. 知识记忆\n8. 习惯记忆\n9. 深度记忆\n\n我会根据您的输入自动激活相应的记忆层。"
             }
             prompt.contains("技能") -> {
                 "我内置了多种技能：\n\n- 计算器\n- 天气查询\n- 翻译\n- 计时器\n- 备忘录\n- 文件管理\n- 网络搜索\n- 闹钟设置\n- 系统工具\n- 生活助手\n\n您可以在技能模块中查看和启用各种技能。"
@@ -225,10 +229,9 @@ data class InferenceConfig(
     val topP: Float = 0.9f,
     val topK: Int = 40,
     val repeatPenalty: Float = 1.1f,
-    val stopSequence: String? = null,
-    val stream: Boolean = true,
-    val tokenChunkSize: Int = 2,
-    val tokenDelayMs: Long = 40L
+    val stopSequence: String? = null
+    // Note: stream, tokenChunkSize, tokenDelayMs are removed from config
+    // since we now have true streaming via generateStream JNI method
 )
 
 data class ModelInfo(
