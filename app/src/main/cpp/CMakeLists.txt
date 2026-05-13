@@ -29,7 +29,6 @@ add_definitions(-D__ANDROID_API__=24)
 
 # Logging
 add_definitions(-DGGML_STATIC)
-add_definitions(-DGGML_SHARED)
 
 # Threading
 add_definitions(-D_GNU_SOURCE)
