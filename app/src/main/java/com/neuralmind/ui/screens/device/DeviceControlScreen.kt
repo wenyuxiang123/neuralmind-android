@@ -1,8 +1,10 @@
 package com.neuralmind.ui.screens.device
 
+import android.Manifest
+import android.os.Build
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -16,126 +18,75 @@ import com.neuralmind.ui.viewmodel.DeviceViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceControlScreen(
-    viewModel: DeviceViewModel = hiltViewModel(),
-    onNavigateBack: () -> Unit
+    viewModel: DeviceViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("设备控制") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                DeviceInfoCard(
-                    batteryLevel = uiState.batteryLevel,
-                    isCharging = uiState.isCharging
-                )
-            }
-
-            item {
-                QuickControlsCard(
-                    isWifiEnabled = uiState.isWifiEnabled,
-                    isBluetoothEnabled = uiState.isBluetoothEnabled,
-                    onToggleWifi = { viewModel.toggleWifi() },
-                    onToggleBluetooth = { viewModel.toggleBluetooth() }
-                )
-            }
-
-            item {
-                VolumeBrightnessCard(
-                    mediaVolume = uiState.mediaVolume,
-                    brightness = uiState.brightness,
-                    maxMediaVolume = uiState.maxMediaVolume,
-                    maxBrightness = 255,
-                    onMediaVolumeChanged = { viewModel.setMediaVolume(it) },
-                    onBrightnessChanged = { viewModel.setBrightness(it) }
-                )
-            }
-
-            item {
-                AutomationRulesCard()
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    "自动化规则",
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-
-            items(viewModel.automationRules, key = { it.id }) { rule ->
-                AutomationRuleItem(
-                    rule = rule,
-                    onToggle = { viewModel.toggleRule(rule.id) },
-                    onDelete = { viewModel.deleteRule(rule.id) }
-                )
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    onClick = { /* TODO: 添加自动化规则 */ },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("添加规则")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DeviceInfoCard(
-    batteryLevel: Int,
-    isCharging: Boolean
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
+        // 标题
+        Text(
+            text = "设备控制",
+            style = MaterialTheme.typography.headlineMedium
+        )
+        
+        // 注意提示
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+            )
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        if (isCharging) Icons.Default.BatteryChargingFull else Icons.Default.BatteryStd,
-                        contentDescription = "电池",
-                        tint = if (batteryLevel > 20) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        "$batteryLevel%",
-                        style = MaterialTheme.typography.titleLarge
-                    )
-                }
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    if (isCharging) "充电中" else "未充电",
-                    style = MaterialTheme.typography.bodyMedium
+                    "部分功能需要打开系统设置进行操作",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
                 )
             }
         }
+        
+        // 快捷控制卡片
+        QuickControlsCard(
+            isWifiEnabled = uiState.isWifiEnabled,
+            isBluetoothEnabled = uiState.isBluetoothEnabled,
+            onOpenWifiSettings = { viewModel.openWifiSettings() },
+            onOpenBluetoothSettings = { viewModel.openBluetoothSettings() }
+        )
+        
+        // 音量和亮度卡片
+        VolumeBrightnessCard(
+            mediaVolume = uiState.mediaVolume,
+            brightness = uiState.brightness,
+            maxMediaVolume = uiState.maxMediaVolume,
+            maxBrightness = 255,
+            onMediaVolumeChanged = { viewModel.setMediaVolume(it) },
+            onOpenSoundSettings = { viewModel.openSoundSettings() },
+            onOpenDisplaySettings = { viewModel.openDisplaySettings() }
+        )
+        
+        // 电池信息卡片
+        BatteryInfoCard(
+            batteryLevel = uiState.batteryLevel,
+            isCharging = uiState.isCharging
+        )
+        
+        // 预设场景卡片
+        AutomationRulesCard()
     }
 }
 
@@ -143,8 +94,8 @@ fun DeviceInfoCard(
 fun QuickControlsCard(
     isWifiEnabled: Boolean,
     isBluetoothEnabled: Boolean,
-    onToggleWifi: () -> Unit,
-    onToggleBluetooth: () -> Unit
+    onOpenWifiSettings: () -> Unit,
+    onOpenBluetoothSettings: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth()
@@ -161,18 +112,18 @@ fun QuickControlsCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                ControlButton(
+                SettingsButton(
                     icon = Icons.Default.Wifi,
                     label = "WiFi",
-                    isEnabled = isWifiEnabled,
-                    onClick = onToggleWifi,
+                    description = if (isWifiEnabled) "已开启" else "已关闭",
+                    onClick = onOpenWifiSettings,
                     modifier = Modifier.weight(1f)
                 )
-                ControlButton(
+                SettingsButton(
                     icon = Icons.Default.Bluetooth,
                     label = "蓝牙",
-                    isEnabled = isBluetoothEnabled,
-                    onClick = onToggleBluetooth,
+                    description = if (isBluetoothEnabled) "已开启" else "已关闭",
+                    onClick = onOpenBluetoothSettings,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -182,10 +133,10 @@ fun QuickControlsCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ControlButton(
+fun SettingsButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
-    isEnabled: Boolean,
+    description: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -193,11 +144,7 @@ fun ControlButton(
         modifier = modifier,
         onClick = onClick,
         colors = CardDefaults.cardColors(
-            containerColor = if (isEnabled) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            }
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
         )
     ) {
         Column(
@@ -209,14 +156,25 @@ fun ControlButton(
             Icon(
                 icon,
                 contentDescription = label,
-                tint = if (isEnabled) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
+                tint = MaterialTheme.colorScheme.onSecondaryContainer
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Text(label)
+            Text(
+                label,
+                style = MaterialTheme.typography.titleSmall
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "打开设置",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
@@ -228,7 +186,8 @@ fun VolumeBrightnessCard(
     maxMediaVolume: Int,
     maxBrightness: Int,
     onMediaVolumeChanged: (Int) -> Unit,
-    onBrightnessChanged: (Int) -> Unit
+    onOpenSoundSettings: () -> Unit,
+    onOpenDisplaySettings: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth()
@@ -242,31 +201,107 @@ fun VolumeBrightnessCard(
             )
             Spacer(modifier = Modifier.height(16.dp))
 
+            // 音量行
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(Icons.Default.VolumeUp, contentDescription = null)
                 Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    "音量",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.width(50.dp)
+                )
                 Slider(
                     value = mediaVolume.toFloat(),
                     valueRange = 0f..maxMediaVolume.toFloat(),
                     onValueChange = { onMediaVolumeChanged(it.toInt()) },
                     modifier = Modifier.weight(1f)
                 )
+                IconButton(onClick = onOpenSoundSettings) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = "更多音量设置",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
+            // 亮度行
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(Icons.Default.BrightnessHigh, contentDescription = null)
                 Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    "亮度",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.width(50.dp)
+                )
                 Slider(
                     value = brightness.toFloat(),
                     valueRange = 0f..maxBrightness.toFloat(),
-                    onValueChange = { onBrightnessChanged(it.toInt()) },
-                    modifier = Modifier.weight(1f)
+                    onValueChange = { },
+                    onValueChangeFinished = onOpenDisplaySettings,
+                    modifier = Modifier.weight(1f),
+                    enabled = false
+                )
+                IconButton(onClick = onOpenDisplaySettings) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = "更多显示设置",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            
+            // 提示
+            Text(
+                "提示：拖动亮度滑块后将打开系统显示设置",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun BatteryInfoCard(
+    batteryLevel: Int,
+    isCharging: Boolean
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        if (isCharging) Icons.Default.BatteryChargingFull else Icons.Default.BatteryStd,
+                        contentDescription = "电池",
+                        tint = if (batteryLevel > 20) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        "$batteryLevel%",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                }
+                Text(
+                    if (isCharging) "充电中" else "未充电",
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
         }
