@@ -1,5 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Dark Theme Colors for Android System -->
+    
+    <!-- Primary Colors - Cyan Blue Gradient -->
+    <color name="primary">#FF00BCD4</color>
+    <color name="primary_variant">#FF2196F3</color>
+    <color name="on_primary">#FF0D1B2A</color>
+    
+    <!-- Secondary Colors - Teal Accent -->
+    <color name="secondary">#FF00897B</color>
+    <color name="on_secondary">#FF0D1B2A</color>
+    
+    <!-- Background Colors - Deep Blue Gradient -->
+    <color name="background">#FF0D1B2A</color>
+    <color name="on_background">#FFFFFFFF</color>
+    
+    <!-- Surface Colors - Cards and Panels -->
+    <color name="surface">#FF1A2332</color>
+    <color name="on_surface">#FFFFFFFF</color>
+    <color name="surface_variant">#FF243447</color>
+    <color name="on_surface_variant">#FFB0BEC5</color>
+    
+    <!-- Error Colors -->
+    <color name="error">#FFF44336</color>
+    <color name="on_error">#FFFFFFFF</color>
+    
+    <!-- Gradient Colors -->
+    <color name="gradient_start">#FF00BCD4</color>
+    <color name="gradient_end">#FF2196F3</color>
+    <color name="gradient_accent">#FF00897B</color>
+    
+    <!-- Text Colors -->
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#FFB0BEC5</color>
+    <color name="text_tertiary">#FF78909C</color>
+    
+    <!-- Status Colors -->
+    <color name="status_online">#FF4CAF50</color>
+    <color name="status_offline">#FFF44336</color>
+    <color name="status_warning">#FFFF9800</color>
+    <color name="status_info">#FF2196F3</color>
+    
+    <!-- Card Colors -->
+    <color name="card_background">#FF1A2332</color>
+    <color name="card_border">#FF2A3A4D</color>
+    
+    <!-- Launcher Icon -->
+    <color name="ic_launcher_background">#FF0D1B2A</color>
+    <color name="ic_launcher_foreground">#FF00BCD4</color>
+    
+    <!-- Legacy Colors (kept for compatibility) -->
     <color name="purple_200">#FFBB86FC</color>
     <color name="purple_500">#FF6200EE</color>
     <color name="purple_700">#FF3700B3</color>
@@ -7,12 +57,4 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="primary">#FF2196F3</color>
-    <color name="primary_variant">#FF1976D2</color>
-    <color name="secondary">#FF03DAC6</color>
-    <color name="background">#FFFFFBFE</color>
-    <color name="surface">#FFFFFBFE</color>
-    <color name="error">#FFB00020</color>
-    <color name="ic_launcher_background">#FF2196F3</color>
-    <color name="ic_launcher_foreground">#FFFFFFFF</color>
 </resources>
