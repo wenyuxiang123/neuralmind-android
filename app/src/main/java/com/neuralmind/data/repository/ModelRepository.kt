@@ -56,6 +56,15 @@ class ModelRepository @Inject constructor(
         return modelDao.getModelById(id)?.toDomain()
     }
 
+    /**
+     * Get the local file path for a downloaded model.
+     * @param modelId The model identifier
+     * @return The absolute path to the model file, or null if not installed
+     */
+    suspend fun getModelPath(modelId: String): String? {
+        return modelDao.getModelById(modelId)?.localPath
+    }
+
     suspend fun switchModel(modelId: String) {
         val model = getModelById(modelId)
         _currentModel.value = model
