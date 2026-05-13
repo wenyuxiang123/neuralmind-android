@@ -5,6 +5,7 @@ import com.neuralmind.data.local.db.entity.MemoryEntity
 import com.neuralmind.domain.model.Memory
 import com.neuralmind.domain.model.MemoryLayer
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,6 +24,14 @@ class MemoryRepository @Inject constructor(
         return memoryDao.getAllActiveMemories().map { entities ->
             entities.map { it.toDomain() }
         }
+    }
+
+    /**
+     * Get a snapshot of currently active memories (non-Flow, immediate value).
+     * Used for injecting memory context into prompt at inference time.
+     */
+    suspend fun getActiveMemoriesSnapshot(): List<Memory> {
+        return memoryDao.getAllActiveMemories().first().map { it.toDomain() }
     }
 
     fun getMemoriesByLayer(layer: MemoryLayer): Flow<List<Memory>> {
@@ -83,6 +92,10 @@ class MemoryRepository @Inject constructor(
         }
     }
 
+    /**
+     * Activate memory layers based on user input and automatically save user info as memories.
+     * This enables the memory system to learn from user conversations.
+     */
     suspend fun activateMemoryFromUserInput(input: String) {
         val patterns = listOf(
             Pair(listOf("记住", "学习", "掌握", "了解"), MemoryLayer.L7_KNOWLEDGE),
@@ -96,12 +109,126 @@ class MemoryRepository @Inject constructor(
         patterns.forEach { (keywords, layer) ->
             if (keywords.any { input.contains(it, ignoreCase = true) }) {
                 activateMemoryLayer(layer)
+                saveUserInfoFromInput(input, layer)
             }
         }
 
         activateMemoryLayer(MemoryLayer.L1_WORKING)
         activateMemoryLayer(MemoryLayer.L2_SHORT_TERM)
         activateMemoryLayer(MemoryLayer.L3_SESSION)
+    }
+
+    /**
+     * Automatically save user information from input as memories.
+     * Extracts structured information based on memory layer context.
+     */
+    private suspend fun saveUserInfoFromInput(input: String, layer: MemoryLayer) {
+        when (layer) {
+            MemoryLayer.L5_PERSONAL -> {
+                // Extract name from patterns like "我叫XXX", "我的名字是XXX"
+                val namePatterns = listOf("我叫", "我的名字是", "我是")
+                for (pattern in namePatterns) {
+                    if (input.contains(pattern)) {
+                        val start = input.indexOf(pattern) + pattern.length
+                        val content = input.substring(start).take(20).trim()
+                        if (content.isNotEmpty() && content.length > 1) {
+                            addMemory(Memory(
+                                layer = layer,
+                                content = "用户名字: $content",
+                                category = "个人信息",
+                                importance = 9
+                            ))
+                        }
+                        break
+                    }
+                }
+            }
+            MemoryLayer.L6_PREFERENCE -> {
+                // Save preference-related content
+                val prefPatterns = listOf("我喜欢", "我偏好", "我想", "我想要")
+                for (pattern in prefPatterns) {
+                    if (input.contains(pattern)) {
+                        val start = input.indexOf(pattern) + pattern.length
+                        val content = input.substring(start).take(50).trim()
+                        if (content.isNotEmpty()) {
+                            addMemory(Memory(
+                                layer = layer,
+                                content = "用户偏好: $content",
+                                category = "偏好",
+                                importance = 7
+                            ))
+                        }
+                        break
+                    }
+                }
+            }
+            MemoryLayer.L7_KNOWLEDGE -> {
+                // Save knowledge from user input
+                val learnPatterns = listOf("记住", "学习", "掌握", "了解")
+                for (pattern in learnPatterns) {
+                    if (input.contains(pattern)) {
+                        // Extract the content after the keyword
+                        val cleanInput = input.replace(pattern, "").trim()
+                        if (cleanInput.isNotEmpty()) {
+                            addMemory(Memory(
+                                layer = layer,
+                                content = cleanInput.take(100),
+                                category = "知识",
+                                importance = 7
+                            ))
+                        }
+                        break
+                    }
+                }
+            }
+            MemoryLayer.L8_HABIT -> {
+                // Save habit patterns
+                val habitPatterns = listOf("习惯", "总是", "通常")
+                for (pattern in habitPatterns) {
+                    if (input.contains(pattern)) {
+                        val cleanInput = input.replace(pattern, "").trim()
+                        if (cleanInput.isNotEmpty()) {
+                            addMemory(Memory(
+                                layer = layer,
+                                content = "用户习惯: $cleanInput",
+                                category = "习惯",
+                                importance = 6
+                            ))
+                        }
+                        break
+                    }
+                }
+            }
+            MemoryLayer.L9_DEEP -> {
+                // Save deep goals and aspirations
+                val goalPatterns = listOf("目标", "梦想", "想要", "我希望")
+                for (pattern in goalPatterns) {
+                    if (input.contains(pattern)) {
+                        val cleanInput = input.replace(pattern, "").trim()
+                        if (cleanInput.isNotEmpty()) {
+                            addMemory(Memory(
+                                layer = layer,
+                                content = "用户目标: $cleanInput",
+                                category = "目标",
+                                importance = 8
+                            ))
+                        }
+                        break
+                    }
+                }
+            }
+            else -> {
+                // For other layers, save general context
+                if (input.length in 10..200) {
+                    addMemory(Memory(
+                        layer = layer,
+                        content = input.take(100),
+                        category = "上下文",
+                        importance = 5
+                    ))
+                }
+            }
+        }
     }
 
     suspend fun insertDefaultMemories() {
