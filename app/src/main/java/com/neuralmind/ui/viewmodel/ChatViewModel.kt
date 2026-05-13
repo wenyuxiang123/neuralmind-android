@@ -169,19 +169,46 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Build prompt using ChatML format for LLM inference.
+     * ChatML format: <|im_start|>role\ncontent<|im_end|>
+     * 
+     * This format is compatible with:
+     * - LLaMA 3.x models
+     * - Qwen models
+     * - Most modern chat-tuned models
+     * - llama.cpp tokenization
+     */
     private fun buildPrompt(userInput: String, contextMessages: List<Message>): String {
-        val context = contextMessages.joinToString("\n") { msg ->
-            when (msg.role) {
-                MessageRole.USER -> "User: ${msg.content}"
-                MessageRole.ASSISTANT -> "Assistant: ${msg.content}"
-                MessageRole.SYSTEM -> "System: ${msg.content}"
+        val sb = StringBuilder()
+        
+        // System prompt
+        sb.append("<|im_start|>system\n")
+        sb.append("你是一个智能助手，名为NeuralMind，运行在本地设备上。")
+        sb.append("你可以帮助用户完成各种任务，包括回答问题、编写代码、进行分析等。")
+        sb.append("<|im_end|>\n")
+        
+        // Context messages (limited to last 10 to save context)
+        for (msg in contextMessages) {
+            val role = when (msg.role) {
+                MessageRole.USER -> "user"
+                MessageRole.ASSISTANT -> "assistant"
+                MessageRole.SYSTEM -> "system"
             }
+            sb.append("<|im_start|>$role\n")
+            sb.append(msg.content)
+            sb.append("<|im_end|>\n")
         }
-        return if (context.isNotEmpty()) {
-            "$context\nUser: $userInput\nAssistant:"
-        } else {
-            "User: $userInput\nAssistant:"
-        }
+        
+        // Current user input
+        sb.append("<|im_start|>user\n")
+        sb.append(userInput)
+        sb.append("<|im_end|>\n")
+        
+        // Assistant prefix for generation
+        sb.append("<|im_start|>assistant\n")
+        
+        return sb.toString()
     }
 
     fun selectModel(model: AIModel) {
