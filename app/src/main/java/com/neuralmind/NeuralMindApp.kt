@@ -1,6 +1,7 @@
 package com.neuralmind
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import com.neuralmind.core.Logger
 import com.neuralmind.data.repository.ChatRepository
 import com.neuralmind.data.repository.ModelRepository
@@ -30,24 +31,31 @@ class NeuralMindApp : Application() {
     lateinit var memoryRepository: MemoryRepository
     
     @Inject
-    lateinit var skillRepository: SkillRepository
-    
-    @Inject
     lateinit var deviceRepository: DeviceRepository
     
     @Inject
     lateinit var toolkitRepository: ToolkitRepository
+    
+    @Inject
+    lateinit var skillRepository: SkillRepository
     
     override fun onCreate() {
         super.onCreate()
         
         // 初始化 Logger
         Logger.init(this)
-        Logger.d(Logger.Tags.ENGINE, "Application onCreate")
-        Logger.d(Logger.Tags.ENGINE, "Log directory: ${Logger.getLogDirPath() ?: "not available"}")
+        Logger.i(Logger.Tags.ENGINE, "Application onCreate")
+        Logger.i(Logger.Tags.ENGINE, "Log directory: ${Logger.getLogDirPath() ?: "not available"}")
         
         // 初始化默认数据
         initializeDefaultData()
+    }
+    
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            Logger.flush()
+        }
     }
     
     private fun initializeDefaultData() {
