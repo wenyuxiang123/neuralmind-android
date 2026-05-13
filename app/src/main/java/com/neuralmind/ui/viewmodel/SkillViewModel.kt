@@ -39,6 +39,21 @@ class SkillViewModel @Inject constructor(
         }
     }
     
+    /**
+     * Select category by tab index (0=全部, 1=效率, 2=创意, 3=学习, 4=工具, 5=生活)
+     */
+    fun selectCategoryByIndex(index: Int) {
+        _selectedCategory.value = when (index) {
+            0 -> SkillCategory.PRODUCTIVITY // 全部 - use PRODUCTIVITY as placeholder for "all"
+            1 -> SkillCategory.PRODUCTIVITY
+            2 -> SkillCategory.CREATIVE
+            3 -> SkillCategory.LEARNING
+            4 -> SkillCategory.UTILITY
+            5 -> SkillCategory.LIFESTYLE
+            else -> SkillCategory.PRODUCTIVITY
+        }
+    }
+    
     fun selectCategory(category: SkillCategory) {
         _selectedCategory.value = category
     }
