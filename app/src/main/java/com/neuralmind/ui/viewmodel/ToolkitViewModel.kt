@@ -60,17 +60,17 @@ class ToolkitViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             try {
-                // 工具启动逻辑
-                // TODO: 实现具体的工具启动逻辑
+                val result = toolkitRepository.executeTool(tool.id, emptyMap())
+                _uiState.update { it.copy(isLoading = false, lastLaunchResult = result) }
             } catch (e: Exception) {
-                // 处理错误
-            } finally {
-                _uiState.update { it.copy(isLoading = false) }
+                _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
         }
     }
 }
 
 data class ToolkitUiState(
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val lastLaunchResult: String? = null,
+    val error: String? = null
 )
