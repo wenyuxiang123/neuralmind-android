@@ -194,17 +194,10 @@ sealed class DeviceAction
 data class WifiAction(val enable: Boolean) : DeviceAction()
 data class BluetoothAction(val enable: Boolean) : DeviceAction()
 data class BrightnessAction(val level: Int) : DeviceAction()
-data class VolumeAction(val stream: AudioStream, val level: Int) : DeviceAction()
+data class VolumeAction(val stream: com.neuralmind.device.AudioStream, val level: Int) : DeviceAction()
 data class LaunchAppAction(val packageName: String) : DeviceAction()
 data class SendSmsAction(val phoneNumber: String, val message: String) : DeviceAction()
 data class SetAlarmAction(val time: String, val message: String) : DeviceAction()
-
-enum class AudioStream {
-    MEDIA,
-    RING,
-    ALARM,
-    NOTIFICATION
-}
 
 data class ToolModule(
     val id: String,
