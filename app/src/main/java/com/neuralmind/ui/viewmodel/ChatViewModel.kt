@@ -14,6 +14,7 @@ import com.neuralmind.domain.model.MemoryLayer
 import com.neuralmind.llama.LlamaEngine
 import com.neuralmind.skills.SkillCallManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -37,6 +38,9 @@ class ChatViewModel @Inject constructor(
     val installedModels = modelRepository.getInstalledModels()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allModels = modelRepository.getAllModels()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _currentConversation = MutableStateFlow<Conversation?>(null)
     val currentConversation: StateFlow<Conversation?> = _currentConversation.asStateFlow()
 
@@ -45,6 +49,14 @@ class ChatViewModel @Inject constructor(
 
     private val _streamingMessage = MutableStateFlow<Message?>(null)
     val streamingMessage: StateFlow<Message?> = _streamingMessage.asStateFlow()
+
+    // Error event channel for UI to collect
+    private val _errorEvent = Channel<String>(Channel.BUFFERED)
+    val errorEvent = _errorEvent.receiveAsFlow()
+
+    fun updateInputText(text: String) {
+        _uiState.update { it.copy(inputText = text) }
+    }
 
     fun createConversation(title: String, model: String, onCreated: (Long) -> Unit) {
         viewModelScope.launch {
@@ -69,7 +81,7 @@ class ChatViewModel @Inject constructor(
         val conversation = _currentConversation.value ?: return
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, isStreaming = false) }
+            _uiState.update { it.copy(isLoading = true, isStreaming = false, inputText = "") }
 
             val userMessageId = chatRepository.sendMessage(
                 conversationId = conversation.id,
@@ -152,7 +164,8 @@ class ChatViewModel @Inject constructor(
                 },
                 onError = { error ->
                     viewModelScope.launch {
-                        _uiState.update { it.copy(isStreaming = false, error = error) }
+                        _uiState.update { it.copy(isStreaming = false) }
+                        _errorEvent.send(error)
                     }
                 }
             )
@@ -166,6 +179,7 @@ class ChatViewModel @Inject constructor(
             )
             _streamingMessage.value = null
             _uiState.update { it.copy(isStreaming = false) }
+            _errorEvent.send("模型未加载，请先在模型库中下载并选择一个模型")
         }
     }
 
@@ -248,5 +262,6 @@ class ChatViewModel @Inject constructor(
 data class ChatUiState(
     val isLoading: Boolean = false,
     val isStreaming: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val inputText: String = ""
 )
