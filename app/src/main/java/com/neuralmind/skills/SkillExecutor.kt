@@ -322,7 +322,7 @@ class SkillExecutor @Inject constructor(
                         fun greet(): String = "Hello, $name"
                     }
                 """)
-            ),
+            )
             "java" -> listOf(
                 CodeSnippet("Hello World", """
                     public class Hello {
@@ -342,7 +342,7 @@ class SkillExecutor @Inject constructor(
                         }
                     }
                 """)
-            ),
+            )
             else -> listOf(
                 CodeSnippet("Template", "// Code template for $language")
             )
