@@ -28,7 +28,8 @@ fun SkillsScreen(
     onNavigateBack: () -> Unit = {}
 ) {
     val skills by viewModel.skills.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
+    val isLoading = uiState.isLoading
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val showInstalledOnly by viewModel.showInstalledOnly.collectAsState()
     
