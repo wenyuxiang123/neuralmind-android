@@ -22,7 +22,9 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "neuralmind_database"
-        ).build()
+        )
+            .fallbackToDestructiveMigration()
+            .build()
     }
 
     @Provides
