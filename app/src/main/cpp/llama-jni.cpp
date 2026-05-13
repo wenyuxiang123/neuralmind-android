@@ -411,6 +411,199 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     return cstringToJString(env, generatedText);
 }
 
+// Streaming generation: generates tokens and calls onToken callback for each token
+// Returns the complete generated text at the end
+JNIEXPORT jstring JNICALL
+Java_com_neuralmind_llama_LlamaJNI_generateStream(
+        JNIEnv* env,
+        jobject thiz,
+        jlong engineId,
+        jstring prompt,
+        jint maxTokens,
+        jfloat temperature,
+        jfloat topP,
+        jint topK,
+        jfloat repeatPenalty,
+        jstring stopSequence) {
+
+    // Get engine pointer
+    engineMutex.lock();
+    auto it = engineMap.find(engineId);
+    if (it == engineMap.end()) {
+        engineMutex.unlock();
+        return cstringToJString(env, "Error: Engine not found");
+    }
+
+    LlamaEngineInstance* engine = it->second;
+
+    if (!engine->model || !engine->context) {
+        engineMutex.unlock();
+        return cstringToJString(env, "Error: Model not loaded");
+    }
+
+    // Mark as generating
+    engine->isGenerating = true;
+    engine->stopRequested = false;
+
+    // Update parameters
+    engine->temperature = temperature;
+    engine->topP = topP;
+    engine->topK = topK;
+    engine->repeatPenalty = repeatPenalty;
+    engine->maxTokens = maxTokens;
+
+    const char* stopSeq = jstringToCString(env, stopSequence);
+    if (stopSeq) {
+        engine->stopSequence = stopSeq;
+        releaseJString(env, stopSequence, stopSeq);
+    } else {
+        engine->stopSequence.clear();
+    }
+
+    const char* promptStr = jstringToCString(env, prompt);
+    if (!promptStr) {
+        engine->isGenerating = false;
+        engineMutex.unlock();
+        return cstringToJString(env, "Error: Invalid prompt");
+    }
+
+    engineMutex.unlock();
+
+    LOGI("Streaming generation for prompt (len=%d), maxTokens=%d, temp=%.2f",
+         (int)strlen(promptStr), maxTokens, temperature);
+
+    // Get vocab from model
+    const llama_vocab* vocab = llama_model_get_vocab(engine->model);
+
+    // Tokenize prompt
+    std::vector<llama_token> promptTokens(llama_vocab_n_tokens(vocab) * 2 + 1);
+    int nPromptTokens = llama_tokenize(
+        vocab,
+        promptStr,
+        (int)strlen(promptStr),
+        promptTokens.data(),
+        (int)promptTokens.size(),
+        true,   // add_bos
+        false   // parse_special
+    );
+
+    releaseJString(env, prompt, promptStr);
+
+    if (nPromptTokens < 0) {
+        engine->isGenerating = false;
+        return cstringToJString(env, "Error: Failed to tokenize prompt");
+    }
+
+    promptTokens.resize(nPromptTokens);
+
+    // Create batch for prompt processing
+    llama_batch batch = llama_batch_init((int)promptTokens.size(), 0, 1);
+    batch.n_tokens = nPromptTokens;
+
+    for (int i = 0; i < nPromptTokens; i++) {
+        batch.token[i] = promptTokens[i];
+        batch.pos[i] = i;
+        batch.n_seq_id[i] = 1;
+        batch.seq_id[i][0] = 0;
+        batch.logits[i] = (i == nPromptTokens - 1) ? 1 : 0;
+    }
+
+    // Decode prompt
+    if (llama_decode(engine->context, batch)) {
+        llama_batch_free(batch);
+        engine->isGenerating = false;
+        return cstringToJString(env, "Error: Failed to decode prompt");
+    }
+
+    // Build sampler chain
+    llama_sampler_chain_params chainParams = llama_sampler_chain_default_params();
+    chainParams.no_perf = true;
+    struct llama_sampler* smpl = llama_sampler_chain_init(chainParams);
+
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, 1));
+    llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
+        topK, repeatPenalty, 0.0f, 0.0f));
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+    // Get onToken method ID for callbacks
+    jclass jniClass = env->GetObjectClass(thiz);
+    jmethodID onTokenMethod = env->GetMethodID(jniClass, "onToken", "(Ljava/lang/String;)V");
+
+    // Generate tokens with streaming callback
+    std::string generatedText;
+    int nGenerated = 0;
+    llama_token newToken = 0;
+
+    while (nGenerated < engine->maxTokens) {
+        // Check stop condition
+        if (engine->stopRequested) {
+            LOGI("Streaming: stopped by request at token %d", nGenerated);
+            break;
+        }
+
+        // Check for stop sequence
+        if (!engine->stopSequence.empty()) {
+            std::string currentOutput = generatedText;
+            size_t stopPos = currentOutput.find(engine->stopSequence);
+            if (stopPos != std::string::npos) {
+                generatedText = currentOutput.substr(0, stopPos);
+                LOGI("Streaming: stopped by sequence at token %d", nGenerated);
+                break;
+            }
+        }
+
+        // Sample next token
+        newToken = llama_sampler_sample(smpl, engine->context, -1);
+
+        // Check for EOS
+        if (llama_vocab_is_eog(vocab, newToken)) {
+            LOGI("Streaming: generated EOS at token %d", nGenerated);
+            break;
+        }
+
+        // Convert token to piece
+        char tokenBuf[128] = {0};
+        int nWritten = llama_token_to_piece(
+            vocab, newToken, tokenBuf, (int)sizeof(tokenBuf), 0, false);
+        if (nWritten > 0) {
+            generatedText += tokenBuf;
+
+            // Stream callback: call Kotlin onToken method
+            jstring jtoken = env->NewStringUTF(tokenBuf);
+            if (jtoken) {
+                env->CallVoidMethod(thiz, onTokenMethod, jtoken);
+                env->DeleteLocalRef(jtoken);
+            }
+        }
+
+        // Accept token in sampler
+        llama_sampler_accept(smpl, newToken);
+
+        // Decode single token
+        llama_batch singleBatch = llama_batch_get_one(&newToken, 1);
+        if (llama_decode(engine->context, singleBatch)) {
+            llama_batch_free(singleBatch);
+            break;
+        }
+
+        nGenerated++;
+
+        // Yield to allow other threads to run (important for streaming)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    // Cleanup
+    llama_sampler_free(smpl);
+
+    engine->isGenerating = false;
+
+    LOGI("Streaming: generated %d tokens total", nGenerated);
+
+    return cstringToJString(env, generatedText);
+}
+
 // Stop generation
 JNIEXPORT void JNICALL
 Java_com_neuralmind_llama_LlamaJNI_stopGeneration(JNIEnv* env, jobject thiz, jlong engineId) {
