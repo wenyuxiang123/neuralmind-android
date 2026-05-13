@@ -2,6 +2,7 @@ package com.neuralmind.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.neuralmind.core.Logger
 import com.neuralmind.data.repository.ChatRepository
 import com.neuralmind.data.repository.ModelRepository
 import com.neuralmind.data.repository.MemoryRepository
@@ -52,46 +53,73 @@ class ChatViewModel @Inject constructor(
     val errorEvent = _errorEvent.receiveAsFlow()
     
     fun updateInputText(text: String) {
+        Logger.d(Logger.Tags.VM, "updateInputText(text=${text.take(20)}...)")
         _uiState.update { it.copy(inputText = text) }
     }
     
     fun createConversation(title: String, model: String, onCreated: (Long) -> Unit) {
+        Logger.d(Logger.Tags.VM, "createConversation(title=$title, model=$model)")
         viewModelScope.launch {
-            val id = chatRepository.createConversation(title, model)
-            onCreated(id)
+            try {
+                val id = chatRepository.createConversation(title, model)
+                Logger.i(Logger.Tags.VM, "createConversation success: id=$id")
+                onCreated(id)
+            } catch (e: Exception) {
+                Logger.e(Logger.Tags.VM, "createConversation failed: title=$title", e)
+            }
         }
     }
     
     fun loadConversation(conversationId: Long) {
+        Logger.d(Logger.Tags.VM, "loadConversation(conversationId=$conversationId)")
         viewModelScope.launch {
-            val conversation = chatRepository.getConversationById(conversationId)
-            _currentConversation.value = conversation
-            conversation?.let { conv ->
-                chatRepository.getMessagesByConversation(conv.id).collect { msgs ->
-                    _messages.value = msgs
+            try {
+                val conversation = chatRepository.getConversationById(conversationId)
+                _currentConversation.value = conversation
+                Logger.i(Logger.Tags.VM, "loadConversation success: ${conversation?.title}")
+                
+                conversation?.let { conv ->
+                    chatRepository.getMessagesByConversation(conv.id).collect { msgs ->
+                        _messages.value = msgs
+                        Logger.d(Logger.Tags.VM, "loadConversation: loaded ${msgs.size} messages")
+                    }
                 }
+            } catch (e: Exception) {
+                Logger.e(Logger.Tags.VM, "loadConversation failed: conversationId=$conversationId", e)
             }
         }
     }
     
     fun sendMessage(content: String) {
-        val conversation = _currentConversation.value ?: return
+        val conversation = _currentConversation.value
+        if (conversation == null) {
+            Logger.w(Logger.Tags.VM, "sendMessage: no current conversation")
+            return
+        }
         
+        Logger.d(Logger.Tags.VM, "sendMessage(content=${content.take(50)}...)")
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, isStreaming = false, inputText = "") }
             
-            val userMessageId = chatRepository.sendMessage(
-                conversationId = conversation.id,
-                role = MessageRole.USER,
-                content = content
-            )
-            
-            memoryRepository.activateMemoryFromUserInput(content)
-            
-            _uiState.update { it.copy(isLoading = false, isStreaming = true) }
-            
-            val contextMessages = _messages.value.takeLast(10)
-            generateAIResponse(conversation, content, contextMessages)
+            try {
+                val userMessageId = chatRepository.sendMessage(
+                    conversationId = conversation.id,
+                    role = MessageRole.USER,
+                    content = content
+                )
+                Logger.d(Logger.Tags.VM, "sendMessage: user message sent, id=$userMessageId")
+                
+                memoryRepository.activateMemoryFromUserInput(content)
+                
+                _uiState.update { it.copy(isLoading = false, isStreaming = true) }
+                
+                val contextMessages = _messages.value.takeLast(10)
+                generateAIResponse(conversation, content, contextMessages)
+            } catch (e: Exception) {
+                Logger.e(Logger.Tags.VM, "sendMessage failed", e)
+                _uiState.update { it.copy(isLoading = false, isStreaming = false) }
+                _errorEvent.send("发送消息失败: ${e.message}")
+            }
         }
     }
     
@@ -100,6 +128,7 @@ class ChatViewModel @Inject constructor(
         userInput: String,
         contextMessages: List<Message>
     ) {
+        Logger.d(Logger.Tags.VM, "generateAIResponse: building prompt")
         val modelId = conversation.model
         val currentTime = System.currentTimeMillis()
         
@@ -115,10 +144,12 @@ class ChatViewModel @Inject constructor(
         var tempResponse = ""
         
         val modelLoaded = modelRepository.currentModel.value?.let { model ->
+            Logger.d(Logger.Tags.VM, "generateAIResponse: loading model ${model.id}")
             llamaEngine.loadModel(model.id)
         } ?: false
         
         if (modelLoaded) {
+            Logger.d(Logger.Tags.VM, "generateAIResponse: model loaded, starting inference")
             val prompt = buildPrompt(userInput, contextMessages)
             
             llamaEngine.generate(
@@ -129,24 +160,31 @@ class ChatViewModel @Inject constructor(
                 },
                 onComplete = { finalResponse ->
                     viewModelScope.launch {
-                        chatRepository.sendMessage(
-                            conversationId = conversation.id,
-                            role = MessageRole.ASSISTANT,
-                            content = finalResponse,
-                            model = modelId
-                        )
-                        _streamingMessage.value = null
-                        _uiState.update { it.copy(isStreaming = false) }
+                        try {
+                            chatRepository.sendMessage(
+                                conversationId = conversation.id,
+                                role = MessageRole.ASSISTANT,
+                                content = finalResponse,
+                                model = modelId
+                            )
+                            Logger.i(Logger.Tags.VM, "generateAIResponse: completed, ${finalResponse.length} chars")
+                            _streamingMessage.value = null
+                            _uiState.update { it.copy(isStreaming = false) }
+                        } catch (e: Exception) {
+                            Logger.e(Logger.Tags.VM, "generateAIResponse: save response failed", e)
+                        }
                     }
                 },
                 onError = { error ->
                     viewModelScope.launch {
+                        Logger.e(Logger.Tags.VM, "generateAIResponse error: $error")
                         _uiState.update { it.copy(isStreaming = false) }
                         _errorEvent.send(error)
                     }
                 }
             )
         } else {
+            Logger.w(Logger.Tags.VM, "generateAIResponse: model not loaded, sending fallback response")
             val fallbackResponse = "模型未加载，请先在模型库中下载并加载一个模型！"
             chatRepository.sendMessage(
                 conversationId = conversation.id,
@@ -162,23 +200,9 @@ class ChatViewModel @Inject constructor(
     
     /**
      * Build prompt using ChatML format for LLM inference, with memory context and skill prompts injection.
-     * ChatML format: <|im_start|>role
-content<|im_end|>
-     * 
-     * Context injection strategy:
-     * - Get currently active memories via snapshot
-     * - Get all active skill system prompts
-     * - Sort memories by importance (descending)
-     * - Limit to top 10 memories to avoid context overflow
-     * - Inject into system prompt with clear formatting
-     * 
-     * This format is compatible with:
-     * - LLaMA 3.x models
-     * - Qwen models
-     * - Most modern chat-tuned models
-     * - llama.cpp tokenization
      */
     private suspend fun buildPrompt(userInput: String, contextMessages: List<Message>): String {
+        Logger.d(Logger.Tags.VM, "buildPrompt: userInput=${userInput.take(30)}...")
         val sb = StringBuilder()
         
         // System prompt with memory and skill context
@@ -228,18 +252,26 @@ content<|im_end|>
         // Assistant prefix for generation
         sb.append("<|im_start|>assistant\n")
         
+        Logger.d(Logger.Tags.VM, "buildPrompt: completed, ${sb.length} chars")
         return sb.toString()
     }
     
     fun selectModel(model: AIModel) {
+        Logger.d(Logger.Tags.VM, "selectModel(model=${model.name})")
         viewModelScope.launch {
-            modelRepository.switchModel(model.id)
-            llamaEngine.loadModel(model.id)
-            _currentConversation.value = _currentConversation.value?.copy(model = model.id)
+            try {
+                modelRepository.switchModel(model.id)
+                llamaEngine.loadModel(model.id)
+                _currentConversation.value = _currentConversation.value?.copy(model = model.id)
+                Logger.i(Logger.Tags.VM, "selectModel success: ${model.name}")
+            } catch (e: Exception) {
+                Logger.e(Logger.Tags.VM, "selectModel failed: ${model.name}", e)
+            }
         }
     }
     
     fun clearError() {
+        Logger.d(Logger.Tags.VM, "clearError")
         _uiState.update { it.copy(error = null) }
     }
 }
