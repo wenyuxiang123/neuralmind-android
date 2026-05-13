@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -23,6 +24,7 @@ import com.neuralmind.domain.model.SkillCategory
 import com.neuralmind.ui.theme.*
 import com.neuralmind.ui.viewmodel.SkillViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SkillsScreen(viewModel: SkillViewModel = hiltViewModel(), onNavigateBack: () -> Unit = {}) {
     val skills by viewModel.skills.collectAsState()
@@ -120,7 +122,7 @@ fun DarkSkillActionButtons(skill: Skill, onInstall: () -> Unit, onUninstall: () 
             !skill.isAvailable -> OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(disabledContentColor = TextTertiary)) { Icon(Icons.Default.HourglassTop, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("即将推出") }
             !skill.isInstalled -> Button(onClick = onInstall, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = GradientStart), shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.Download, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("安装") }
             skill.isInstalled && !skill.isActive -> { Button(onClick = onActivate, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = GradientStart), shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.CheckCircle, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("启用") }; OutlinedButton(onClick = onUninstall, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusOffline), borderColor = StatusOffline.copy(alpha = 0.5f), shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.Delete, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("卸载") } }
-            skill.isActive -> { Button(onClick = {}, enabled = false, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(disabledContainerColor = GradientStart, disabledContentColor = Color.White), shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.CheckCircle, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("已启用") }; OutlinedButton(onClick = onDeactivate, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary), borderColor = CardBorder, shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.PauseCircle, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("停用") } }
+            skill.isActive -> { Button(onClick = {}, enabled = false, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(disabledContainerColor = GradientStart, disabledContentColor = Color.White), shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.CheckCircle, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("已启用") }; OutlinedButton(onClick = onDeactivate, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),  shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.PauseCircle, contentDescription = null); Spacer(modifier = Modifier.width(4.dp)); Text("停用") } }
         }
     }
 }
