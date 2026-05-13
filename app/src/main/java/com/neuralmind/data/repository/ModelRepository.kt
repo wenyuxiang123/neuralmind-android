@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import android.util.Log
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -20,6 +21,10 @@ class ModelRepository @Inject constructor(
     private val context: Context,
     private val modelDownloader: ModelDownloader
 ) {
+    companion object {
+        private const val TAG = "ModelRepository"
+    }
+
     private val modelsDir = File(context.filesDir, "models")
     
     private val _currentModel = MutableStateFlow<AIModel?>(null)
@@ -68,7 +73,8 @@ class ModelRepository @Inject constructor(
     }
 
     suspend fun insertDefaultModels() {
-        if (modelDao.getModelById("llama3.2-1b") != null) return
+        try {
+            if (modelDao.getModelById("llama3.2-1b") != null) return
 
         val defaultModels = listOf(
             // Mobile models - 适合手机的高效模型
@@ -235,23 +241,35 @@ class ModelRepository @Inject constructor(
                 supportsNnapi = false
             )
         )
-        defaultModels.forEach { modelDao.insert(it) }
+            defaultModels.forEach { modelDao.insert(it) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error inserting default models", e)
+        }
     }
 
     suspend fun downloadModel(modelId: String) {
-        val model = modelDao.getModelById(modelId) ?: return
-        modelDao.setDownloading(modelId, true, 0f)
-        
         try {
-            val result = modelDownloader.downloadModel(modelId, model.downloadUrl)
+            val model = modelDao.getModelById(modelId) ?: return
+            modelDao.setDownloading(modelId, true, 0f)
             
-            if (result.isSuccess) {
-                if (_currentModel.value == null) {
-                    switchModel(modelId)
+            try {
+                val result = modelDownloader.downloadModel(modelId, model.downloadUrl)
+                
+                if (result.isSuccess) {
+                    if (_currentModel.value == null) {
+                        switchModel(modelId)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Download failed for model: $modelId", e)
+                try {
+                    modelDao.setDownloading(modelId, false, 0f)
+                } catch (dbEx: Exception) {
+                    Log.e(TAG, "Failed to reset download state", dbEx)
                 }
             }
         } catch (e: Exception) {
-            modelDao.setDownloading(modelId, false, 0f)
+            Log.e(TAG, "Error in downloadModel: $modelId", e)
         }
     }
 
@@ -276,10 +294,14 @@ class ModelRepository @Inject constructor(
     }
 
     suspend fun deleteModel(modelId: String) {
-        modelDownloader.deleteModel(modelId)
-        
-        if (_currentModel.value?.id == modelId) {
-            _currentModel.value = null
+        try {
+            modelDownloader.deleteModel(modelId)
+            
+            if (_currentModel.value?.id == modelId) {
+                _currentModel.value = null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting model: $modelId", e)
         }
     }
 
