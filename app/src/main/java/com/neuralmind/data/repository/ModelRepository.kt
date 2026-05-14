@@ -42,7 +42,7 @@ class ModelRepository @Inject constructor(
     
     suspend fun getInstalledModelsSync(): List<AIModel> {
         return try {
-            modelDao.getInstalledModels().map { it.toDomainModel() }
+            modelDao.getInstalledModelsOnce().map { it.toDomainModel() }
         } catch (e: Exception) {
             Logger.e(Logger.Tags.REPO, "getInstalledModelsSync failed", e)
             emptyList()
