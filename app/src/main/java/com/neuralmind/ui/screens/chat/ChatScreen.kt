@@ -151,20 +151,21 @@ fun DarkMessageBubble(message: Message, modifier: Modifier = Modifier) {
 @Composable
 fun DarkChatInput(inputText: String, onInputChanged: (String) -> Unit, onSend: () -> Unit, isLoading: Boolean, modifier: Modifier = Modifier) {
     var showAttachMenu by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Surface(modifier = modifier, color = BackgroundSecondary, shadowElevation = 8.dp) {
         Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            // 合并附件+图片为一个按钮
+            // 附件+图片合并按钮
             Box {
                 IconButton(onClick = { showAttachMenu = !showAttachMenu }, colors = IconButtonDefaults.iconButtonColors(contentColor = TextSecondary)) {
                     Icon(Icons.Default.AddCircleOutline, contentDescription = "添加")
                 }
                 DropdownMenu(expanded = showAttachMenu, onDismissRequest = { showAttachMenu = false }) {
-                    DropdownMenuItem(text = { Text("文件", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false })
-                    DropdownMenuItem(text = { Text("图片", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false })
+                    DropdownMenuItem(text = { Text("文件", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false; android.widget.Toast.makeText(context, "文件上传功能开发中", android.widget.Toast.LENGTH_SHORT).show() })
+                    DropdownMenuItem(text = { Text("图片", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false; android.widget.Toast.makeText(context, "图片上传功能开发中", android.widget.Toast.LENGTH_SHORT).show() })
                 }
             }
-            // 扩大输入框
+            // 输入框
             TextField(
                 value = inputText, onValueChange = onInputChanged, modifier = Modifier.weight(1f),
                 placeholder = { Text("输入消息...", color = TextTertiary) },
@@ -176,7 +177,9 @@ fun DarkChatInput(inputText: String, onInputChanged: (String) -> Unit, onSend: (
                 shape = RoundedCornerShape(24.dp), minLines = 1, maxLines = 5
             )
             // 语音按钮
-            IconButton(onClick = { }, colors = IconButtonDefaults.iconButtonColors(contentColor = TextSecondary)) { Icon(Icons.Default.Mic, contentDescription = "语音") }
+            IconButton(onClick = { android.widget.Toast.makeText(context, "语音功能开发中", android.widget.Toast.LENGTH_SHORT).show() }, colors = IconButtonDefaults.iconButtonColors(contentColor = TextSecondary)) {
+                Icon(Icons.Default.Mic, contentDescription = "语音")
+            }
             // 发送按钮
             Box(
                 modifier = Modifier.size(44.dp).clip(CircleShape).background(brush = if (inputText.isNotBlank() && !isLoading) Brush.linearGradient(colors = listOf(GradientStart, GradientEnd)) else Brush.linearGradient(colors = listOf(CardBorder, CardBorder))),
@@ -184,7 +187,7 @@ fun DarkChatInput(inputText: String, onInputChanged: (String) -> Unit, onSend: (
             ) {
                 IconButton(onClick = onSend, enabled = inputText.isNotBlank() && !isLoading) {
                     if (isLoading) {
-                        LinearProgressIndicator(color = GradientStart, trackColor = CardBorder, modifier = Modifier.fillMaxWidth())
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
                     } else {
                         Icon(Icons.Default.Send, contentDescription = "发送", tint = if (inputText.isNotBlank()) Color.White else TextTertiary, modifier = Modifier.size(20.dp))
                     }
