@@ -170,7 +170,7 @@ fun DarkChatInput(inputText: String, onInputChanged: (String) -> Unit, onSend: (
                 contentAlignment = Alignment.Center
             ) {
                 IconButton(onClick = onSend, enabled = inputText.isNotBlank() && !isLoading) {
-                    if (isLoading) { CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = Color.White) }
+                    if (isLoading) { LinearProgressIndicator(color = GradientStart, trackColor = CardBorder, modifier = Modifier.fillMaxWidth()) }
                     else { Icon(Icons.Default.Mic, contentDescription = "语音", tint = if (inputText.isNotBlank()) Color.White else TextTertiary) }
                 }
             }
