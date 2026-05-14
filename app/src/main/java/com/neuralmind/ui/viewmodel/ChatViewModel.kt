@@ -1,5 +1,4 @@
 package com.neuralmind.ui.viewmodel
-
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuralmind.core.Logger
@@ -17,7 +16,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
@@ -210,6 +208,7 @@ class ChatViewModel @Inject constructor(
     
     /**
      * Build prompt using ChatML format for LLM inference, with memory context and skill prompts injection.
+     * Optimized for small models (0.5B): reduced memory injection to 3 (from 10) to minimize prefill time.
      */
     private suspend fun buildPrompt(userInput: String, contextMessages: List<Message>): String {
         Logger.d(Logger.Tags.VM, "buildPrompt: userInput=${userInput.take(30)}...")
@@ -230,10 +229,11 @@ class ChatViewModel @Inject constructor(
         if (activeMemories.isNotEmpty()) {
             sb.append("\n\n【关于用户的记忆】\n")
             
-            // Sort by importance and limit to 10 most important memories
+            // Optimized for small models: limit to 3 most important memories only
+            // This significantly reduces prompt token count and prefill time for 0.5B models
             val relevantMemories = activeMemories
                 .sortedByDescending { it.importance }
-                .take(10)
+                .take(3)
             
             relevantMemories.forEach { memory ->
                 sb.append("- [${memory.layer.description}] ${memory.content}\n")
@@ -285,7 +285,6 @@ class ChatViewModel @Inject constructor(
         _uiState.update { it.copy(error = null) }
     }
 }
-
 data class ChatUiState(
     val isLoading: Boolean = false,
     val isStreaming: Boolean = false,
