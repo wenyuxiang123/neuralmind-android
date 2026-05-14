@@ -1,5 +1,4 @@
 package com.neuralmind.llama
-
 import android.content.Context
 import com.neuralmind.core.Logger
 import com.neuralmind.data.repository.ModelRepository
@@ -14,7 +13,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-
 @Singleton
 class LlamaEngine @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -288,16 +286,14 @@ class LlamaEngine @Inject constructor(
         }
     }
 }
-
 data class InferenceConfig(
-    val maxTokens: Int = 512,
+    val maxTokens: Int = 256,        // Reduced from 512 - sufficient for short conversations
     val temperature: Float = 0.7f,
     val topP: Float = 0.9f,
     val topK: Int = 40,
     val repeatPenalty: Float = 1.1f,
-    val stopSequence: String? = null
+    val stopSequence: String? = null // Let llama_vocab_is_eog handle EOS for all model formats
 )
-
 data class ModelInfo(
     val modelId: String,
     val modelName: String,
