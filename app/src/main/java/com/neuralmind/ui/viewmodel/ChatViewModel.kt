@@ -147,10 +147,15 @@ class ChatViewModel @Inject constructor(
             Logger.d(Logger.Tags.VM, "generateAIResponse: model already loaded")
             true
         } else {
-            modelRepository.currentModel.value?.let { model ->
-                Logger.d(Logger.Tags.VM, "generateAIResponse: loading model ${model.id}")
-                llamaEngine.loadModel(model.id)
-            } ?: false
+            // Try currentModel first, fallback to conversation's model
+            val modelId = modelRepository.currentModel.value?.id ?: modelId
+            if (modelId.isNotEmpty()) {
+                Logger.d(Logger.Tags.VM, "generateAIResponse: loading model $modelId")
+                llamaEngine.loadModel(modelId)
+            } else {
+                Logger.w(Logger.Tags.VM, "generateAIResponse: no model available")
+                false
+            }
         }
         
         if (modelLoaded) {
