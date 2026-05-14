@@ -128,12 +128,13 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
         return JNI_FALSE;
     }
     // Initialize context (thread/context params are in context_params, not model_params)
-    // Optimized for Snapdragon 778G: 8 cores, 0.5B-7B models
+    // Optimized for Snapdragon 778G big.LITTLE: 4x Cortex-A78 (big) + 4x Cortex-A55 (little)
+    // Use 4 threads to stay on big cores only for better performance
     llama_context_params ctx_params = llama_context_default_params();
     ctx_params.n_ctx = 1024;         // Reduced from 2048 - sufficient for 0.5B-7B models, supports 4-5 conversation turns
     ctx_params.n_batch = 512;         // Keep 512 for efficient prompt prefill
-    ctx_params.n_threads = 8;         // Increased from 4 - use all 8 cores on Snapdragon 778G
-    ctx_params.n_threads_batch = 8;   // Increased from 4 - parallel batch processing
+    ctx_params.n_threads = 4;         // Reduced from 8 - stay on big cores only (Cortex-A78)
+    ctx_params.n_threads_batch = 4;   // Reduced from 8 - batch processing on big cores only
     engine->context = llama_init_from_model(engine->model, ctx_params);
     if (!engine->context) {
         LOGE("Failed to create context");
@@ -420,6 +421,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         batch.seq_id[i][0] = 0;
         batch.logits[i] = (i == nPromptTokens - 1) ? 1 : 0;
     }
+
     // Clear KV cache before decode to ensure fresh inference
     llama_memory_clear(llama_get_memory(engine->context), true);
     // Decode prompt
