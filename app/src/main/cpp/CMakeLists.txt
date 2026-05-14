@@ -33,14 +33,15 @@ FetchContent_Declare(
     SOURCE_SUBDIR .
 )
 FetchContent_MakeAvailable(llama_cpp)
-# ARM architecture-specific optimizations for Snapdragon 778G (Cortex-A78 + Cortex-A55)
-# GGML_CPU_ARM_ARCH is the proper way to tell llama.cpp's ggml-cpu backend
-# which ARM features to target. This affects the ACTUAL computation target (ggml-cpu),
-# not just the top-level ggml/llama wrappers.
-if(ANDROID_ABI STREQUAL "arm64-v8a")
-    set(GGML_CPU_ARM_ARCH "armv8.2-a+dotprod+fp16" CACHE STRING "ARM arch for CPU backend" FORCE)
-    message(STATUS "Setting GGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 for Snapdragon 778G")
-endif()
+# ARM architecture notes for Snapdragon 778G (Cortex-A78 + Cortex-A55):
+# - Cannot use GGML_CPU_ARM_ARCH=armv8.2-a+dotprod because it compiles dotprod
+#   instructions into ALL ggml-cpu code, causing SIGILL on Cortex-A55 (no dotprod).
+# - Cannot use GGML_NATIVE because it requires running test programs on the target
+#   device (not possible in CI cross-compilation).
+# - The safe approach: let ggml-cpu use default ARMv8-A (NEON only, safe on all cores).
+#   The LLAMAFILE sggemm code uses NEON intrinsics which are fast and safe.
+# - GGML_CPU_LLAMAFILE=ON is already set above, enabling the optimized sgemm.cpp
+#   which uses ARM NEON for matrix multiplication (safe on both A78 and A55).
 # Create shared library for JNI
 add_library(neuralmind-jni SHARED llama-jni.cpp)
 # Include directories
