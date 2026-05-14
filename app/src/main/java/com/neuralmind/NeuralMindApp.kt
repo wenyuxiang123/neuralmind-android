@@ -40,6 +40,9 @@ class NeuralMindApp : Application() {
     @Inject
     lateinit var skillRepository: SkillRepository
     
+    @Inject
+    lateinit var llamaEngine: LlamaEngine
+    
     override fun onCreate() {
         super.onCreate()
         
