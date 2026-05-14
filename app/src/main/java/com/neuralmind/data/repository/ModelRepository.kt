@@ -278,9 +278,8 @@ class ModelRepository @Inject constructor(
                 
                 if (result.isSuccess) {
                     Logger.i(Logger.Tags.REPO, "downloadModel success: $modelId")
-                    if (_currentModel.value == null) {
-                        switchModel(modelId)
-                    }
+                    // 下载完成后自动切换为当前模型
+                    switchModel(modelId)
                 } else {
                     Logger.e(Logger.Tags.REPO, "downloadModel failed: $modelId, error=${result.exceptionOrNull()?.message}")
                 }
