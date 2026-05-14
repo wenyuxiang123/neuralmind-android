@@ -40,6 +40,15 @@ class ModelRepository @Inject constructor(
         }
     }
     
+    suspend fun getInstalledModelsSync(): List<AIModel> {
+        return try {
+            modelDao.getInstalledModels().map { it.toDomainModel() }
+        } catch (e: Exception) {
+            Logger.e(Logger.Tags.REPO, "getInstalledModelsSync failed", e)
+            emptyList()
+        }
+    }
+    
     fun getInstalledModels(): Flow<List<AIModel>> {
         Logger.d(Logger.Tags.REPO, "getInstalledModels() called")
         return modelDao.getInstalledModels().map { entities ->
