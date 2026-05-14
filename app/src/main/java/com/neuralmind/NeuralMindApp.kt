@@ -9,6 +9,7 @@ import com.neuralmind.data.repository.MemoryRepository
 import com.neuralmind.data.repository.SkillRepository
 import com.neuralmind.data.repository.DeviceRepository
 import com.neuralmind.data.repository.ToolkitRepository
+import com.neuralmind.llama.LlamaEngine
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +107,36 @@ class NeuralMindApp : Application() {
             }
             
             Logger.d(Logger.Tags.ENGINE, "Default data initialization completed")
+            
+            // 自动加载上次的模型
+            try {
+                val currentModel = modelRepository.currentModel.value
+                if (currentModel != null && currentModel.isInstalled) {
+                    Logger.d(Logger.Tags.ENGINE, "Auto-loading model: ${currentModel.id}")
+                    val loaded = llamaEngine.loadModel(currentModel.id)
+                    if (loaded) {
+                        Logger.i(Logger.Tags.ENGINE, "Auto-load model success: ${currentModel.name}")
+                    } else {
+                        Logger.w(Logger.Tags.ENGINE, "Auto-load model failed: ${currentModel.id}")
+                    }
+                } else {
+                    // 尝试加载第一个已安装的模型
+                    val installedModels = modelRepository.getInstalledModelsSync()
+                    if (installedModels.isNotEmpty()) {
+                        val firstModel = installedModels.first()
+                        Logger.d(Logger.Tags.ENGINE, "Auto-loading first installed model: ${firstModel.id}")
+                        modelRepository.switchModel(firstModel.id)
+                        val loaded = llamaEngine.loadModel(firstModel.id)
+                        if (loaded) {
+                            Logger.i(Logger.Tags.ENGINE, "Auto-load first model success: ${firstModel.name}")
+                        }
+                    } else {
+                        Logger.i(Logger.Tags.ENGINE, "No installed model found, skip auto-load")
+                    }
+                }
+            } catch (e: Exception) {
+                Logger.e(Logger.Tags.ENGINE, "Auto-load model failed", e)
+            }
         }
     }
 }
