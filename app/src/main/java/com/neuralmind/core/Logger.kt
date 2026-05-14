@@ -2,6 +2,7 @@ package com.neuralmind.core
 
 import android.content.Context
 import android.os.Environment
+import android.os.Process
 import android.util.Log
 import com.neuralmind.BuildConfig
 import java.io.File
@@ -20,6 +21,7 @@ import java.util.concurrent.TimeUnit
  * DEBUG 模式输出所有级别，Release 模式只输出 WARN 和 ERROR
  * 支持日志写入文件，保留最近7天日志
  * 日志文件存储在外部存储，可通过文件管理器访问
+ * 内置全局崩溃捕获，确保 crash 日志不丢失
  */
 object Logger {
     
@@ -35,6 +37,7 @@ object Logger {
         const val NET = "NM-Net"
         const val DB = "NM-DB"
         const val SKILL = "NM-Skill"
+        const val CRASH = "NM-Crash"
     }
     
     private var context: Context? = null
@@ -51,7 +54,6 @@ object Logger {
     private val logDir: File?
         get() {
             val ctx = context ?: return null
-            // 优先外部存储 - 文件管理器可访问
             val externalDir = ctx.getExternalFilesDir(null)
             if (externalDir != null) {
                 val dir = File(externalDir, "logs")
@@ -59,7 +61,6 @@ object Logger {
                     return dir
                 }
             }
-            // 回退内部存储
             val internalDir = File(ctx.filesDir, "logs")
             if (internalDir.exists() || internalDir.mkdirs()) {
                 return internalDir
@@ -96,10 +97,50 @@ object Logger {
             Log.d("Logger", "Log directory: ${dir.absolutePath}")
         }
         
+        // 注册全局崩溃捕获
+        installCrashHandler()
+        
         cleanOldLogs()
         startAsyncWriter()
         
         isInitialized = true
+    }
+    
+    /**
+     * 全局未捕获异常处理器
+     * 在进程崩溃前同步写入 crash 日志，确保不丢失
+     */
+    private var defaultHandler: Thread.UncaughtExceptionHandler? = null
+    
+    private fun installCrashHandler() {
+        defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            // 同步写入 crash 日志到文件
+            try {
+                val logFile = getTodayLogFile()
+                if (logFile != null) {
+                    val timestamp = dateFormatter.format(Date())
+                    PrintWriter(FileWriter(logFile, true)).use { writer ->
+                        writer.println("========== CRASH ==========")
+                        writer.println("$timestamp E/${Tags.CRASH}: Uncaught exception in thread: ${thread.name}")
+                        writer.println(Log.getStackTraceString(throwable))
+                        writer.println("============================")
+                        writer.flush()
+                    }
+                    Log.e(Tags.CRASH, "Crash log written to: ${logFile.absolutePath}")
+                }
+            } catch (e: Exception) {
+                Log.e(Tags.CRASH, "Failed to write crash log", e)
+            }
+            
+            // 先尝试刷新队列中的日志
+            try {
+                flush()
+            } catch (_: Exception) {}
+            
+            // 交给原来的 handler 处理（通常是系统 crash dialog）
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
     }
     
     fun v(tag: String, msg: String) {
@@ -141,9 +182,6 @@ object Logger {
         }
     }
     
-    /**
-     * 便捷方法：DEBUG 日志，使用 lambda 避免字符串拼接开销
-     */
     fun debug(tag: String, msg: () -> String) {
         if (shouldLog(Level.DEBUG)) {
             val message = msg()
@@ -152,9 +190,6 @@ object Logger {
         }
     }
     
-    /**
-     * 便捷方法：INFO 日志
-     */
     fun info(tag: String, msg: () -> String) {
         if (shouldLog(Level.INFO)) {
             val message = msg()
@@ -260,10 +295,6 @@ object Logger {
         return logDir?.absolutePath
     }
     
-    /**
-     * 刷新所有待写入的日志
-     * 在 Application.onTrimMemory 或 Activity.onDestroy 时调用
-     */
     fun flush() {
         while (logQueue.isNotEmpty()) {
             flushLogs()
