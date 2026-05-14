@@ -59,7 +59,7 @@ fun SkillsScreen(viewModel: SkillViewModel = hiltViewModel(), onNavigateBack: ()
         }
 
         if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = GradientStart) }
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LinearProgressIndicator(color = GradientStart, trackColor = CardBorder, modifier = Modifier.fillMaxWidth(0.5f)) }
         } else {
             val filteredSkills = skills.filter { skill ->
                 val categoryMatch = when (selectedTabIndex) { 0 -> true; 1 -> skill.category == SkillCategory.PRODUCTIVITY; 2 -> skill.category == SkillCategory.CREATIVE; 3 -> skill.category == SkillCategory.LEARNING; 4 -> skill.category == SkillCategory.UTILITY; 5 -> skill.category == SkillCategory.LIFESTYLE; else -> true }
