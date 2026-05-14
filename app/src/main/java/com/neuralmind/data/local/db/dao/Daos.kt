@@ -78,6 +78,9 @@ interface ModelDao {
     @Query("SELECT * FROM models WHERE isInstalled = 1")
     fun getInstalledModels(): Flow<List<ModelEntity>>
     
+    @Query("SELECT * FROM models WHERE isInstalled = 1")
+    suspend fun getInstalledModelsOnce(): List<ModelEntity>
+    
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(model: ModelEntity)
     
