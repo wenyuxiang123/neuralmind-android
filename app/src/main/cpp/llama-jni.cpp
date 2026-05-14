@@ -258,7 +258,7 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         batch.logits[i] = (i == nPromptTokens - 1) ? 1 : 0;
     }
     // Clear KV cache before decode to ensure fresh inference
-    llama_kv_cache_clear(engine->context);
+    llama_memory_clear(llama_get_memory(engine->context), true);
     // Decode prompt
     if (llama_decode(engine->context, batch)) {
         llama_batch_free(batch);
@@ -421,7 +421,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         batch.logits[i] = (i == nPromptTokens - 1) ? 1 : 0;
     }
     // Clear KV cache before decode to ensure fresh inference
-    llama_kv_cache_clear(engine->context);
+    llama_memory_clear(llama_get_memory(engine->context), true);
     // Decode prompt
     if (llama_decode(engine->context, batch)) {
         llama_batch_free(batch);
