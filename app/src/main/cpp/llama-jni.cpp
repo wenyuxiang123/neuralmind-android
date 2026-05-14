@@ -1,6 +1,5 @@
 // llama-jni.cpp - JNI interface for llama.cpp integration (llama.cpp b9128 API)
 // This file bridges Java/Kotlin code with llama.cpp inference engine
-
 #include <jni.h>
 #include <string>
 #include <vector>
@@ -12,17 +11,14 @@
 #include <chrono>
 #include <cstring>
 #include <android/log.h>
-
 // llama.h is in ${llama_cpp_SOURCE_DIR}/include, which is added via CMakeLists.txt
 #include "llama.h"
-
 // Logging macros
 #define LOG_TAG "LlamaJNI"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-
 // Engine instance structure
 struct LlamaEngineInstance {
     llama_model * model = nullptr;
@@ -30,7 +26,6 @@ struct LlamaEngineInstance {
     std::atomic<bool> isGenerating{false};
     std::atomic<bool> stopRequested{false};
     std::string modelPath;
-
     // Inference parameters
     int maxTokens = 512;
     float temperature = 0.7f;
@@ -38,7 +33,6 @@ struct LlamaEngineInstance {
     int topK = 40;
     float repeatPenalty = 1.1f;
     std::string stopSequence;
-
     ~LlamaEngineInstance() {
         if (context) {
             llama_free(context);
@@ -50,79 +44,61 @@ struct LlamaEngineInstance {
         }
     }
 };
-
 // Global engine map and mutex
 static std::map<jlong, LlamaEngineInstance*> engineMap;
 static std::mutex engineMutex;
 static jlong nextEngineId = 1;
-
 // Helper: Convert Java string to C string
 static const char* jstringToCString(JNIEnv* env, jstring jstr) {
     if (!jstr) return nullptr;
     return env->GetStringUTFChars(jstr, nullptr);
 }
-
 // Helper: Release Java string
 static void releaseJString(JNIEnv* env, jstring jstr, const char* cstr) {
     if (jstr && cstr) {
         env->ReleaseStringUTFChars(jstr, cstr);
     }
 }
-
 // Helper: Create Java string from C string
 static jstring cstringToJString(JNIEnv* env, const std::string& str) {
     return env->NewStringUTF(str.c_str());
 }
-
 extern "C" {
-
 // Create a new llama engine instance
 JNIEXPORT jlong JNICALL
 Java_com_neuralmind_llama_LlamaJNI_createEngine(JNIEnv* env, jobject thiz) {
     // Initialize llama backend (once per process is fine, idempotent)
     llama_backend_init();
-
     std::lock_guard<std::mutex> lock(engineMutex);
-
     LlamaEngineInstance* engine = new LlamaEngineInstance();
     jlong engineId = nextEngineId++;
-
     engineMap[engineId] = engine;
-
     LOGI("Created new LlamaEngine with ID: %ld", (long)engineId);
-
     return engineId;
 }
-
 // Destroy engine instance
 JNIEXPORT void JNICALL
 Java_com_neuralmind_llama_LlamaJNI_destroyEngine(JNIEnv* env, jobject thiz, jlong engineId) {
     std::lock_guard<std::mutex> lock(engineMutex);
-
     auto it = engineMap.find(engineId);
     if (it != engineMap.end()) {
         delete it->second;
         engineMap.erase(it);
         LOGI("Destroyed LlamaEngine with ID: %ld", (long)engineId);
     }
-
     // Free llama backend on last engine destruction
     llama_backend_free();
 }
-
 // Load model from file
 JNIEXPORT jboolean JNICALL
 Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong engineId, jstring modelPath) {
     std::lock_guard<std::mutex> lock(engineMutex);
-
     auto it = engineMap.find(engineId);
     if (it == engineMap.end()) {
         LOGE("Engine not found: %ld", (long)engineId);
         return JNI_FALSE;
     }
-
     LlamaEngineInstance* engine = it->second;
-
     // Free existing model if any
     if (engine->context) {
         llama_free(engine->context);
@@ -132,40 +108,33 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
         llama_model_free(engine->model);
         engine->model = nullptr;
     }
-
     // Get model path
     const char* path = jstringToCString(env, modelPath);
     if (!path) {
         LOGE("Invalid model path");
         return JNI_FALSE;
     }
-
     LOGI("Loading model from: %s", path);
-
     // Set model parameters
     // NOTE: In llama.cpp b9128, llama_model_params no longer has n_ctx, n_batch,
     // n_threads, n_threads_batch, or numa. Those belong to llama_context_params.
     llama_model_params params = llama_model_default_params();
     params.n_gpu_layers = 0;  // CPU-only (no GPU offload)
-
     // Load the model
     engine->model = llama_model_load_from_file(path, params);
-
     if (!engine->model) {
         LOGE("Failed to load model: %s", path);
         releaseJString(env, modelPath, path);
         return JNI_FALSE;
     }
-
     // Initialize context (thread/context params are in context_params, not model_params)
+    // Optimized for Snapdragon 778G: 8 cores, 0.5B-7B models
     llama_context_params ctx_params = llama_context_default_params();
-    ctx_params.n_ctx = 2048;
-    ctx_params.n_batch = 512;
-    ctx_params.n_threads = 4;
-    ctx_params.n_threads_batch = 4;
-
+    ctx_params.n_ctx = 1024;         // Reduced from 2048 - sufficient for 0.5B-7B models, supports 4-5 conversation turns
+    ctx_params.n_batch = 512;         // Keep 512 for efficient prompt prefill
+    ctx_params.n_threads = 8;         // Increased from 4 - use all 8 cores on Snapdragon 778G
+    ctx_params.n_threads_batch = 8;   // Increased from 4 - parallel batch processing
     engine->context = llama_init_from_model(engine->model, ctx_params);
-
     if (!engine->context) {
         LOGE("Failed to create context");
         llama_model_free(engine->model);
@@ -173,28 +142,21 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
         releaseJString(env, modelPath, path);
         return JNI_FALSE;
     }
-
     engine->modelPath = path;
-
     releaseJString(env, modelPath, path);
-
-    LOGI("Model loaded successfully: %s", engine->modelPath.c_str());
-
+    LOGI("Model loaded successfully: %s (n_ctx=%d, n_batch=%d, n_threads=%d)",
+         engine->modelPath.c_str(), ctx_params.n_ctx, ctx_params.n_batch, ctx_params.n_threads);
     return JNI_TRUE;
 }
-
 // Unload model
 JNIEXPORT void JNICALL
 Java_com_neuralmind_llama_LlamaJNI_unloadModel(JNIEnv* env, jobject thiz, jlong engineId) {
     std::lock_guard<std::mutex> lock(engineMutex);
-
     auto it = engineMap.find(engineId);
     if (it == engineMap.end()) {
         return;
     }
-
     LlamaEngineInstance* engine = it->second;
-
     if (engine->context) {
         llama_free(engine->context);
         engine->context = nullptr;
@@ -203,25 +165,19 @@ Java_com_neuralmind_llama_LlamaJNI_unloadModel(JNIEnv* env, jobject thiz, jlong 
         llama_model_free(engine->model);
         engine->model = nullptr;
     }
-
     engine->modelPath.clear();
-
     LOGI("Model unloaded");
 }
-
 // Check if model is loaded
 JNIEXPORT jboolean JNICALL
 Java_com_neuralmind_llama_LlamaJNI_isModelLoaded(JNIEnv* env, jobject thiz, jlong engineId) {
     std::lock_guard<std::mutex> lock(engineMutex);
-
     auto it = engineMap.find(engineId);
     if (it == engineMap.end()) {
         return JNI_FALSE;
     }
-
     return (it->second->model != nullptr && it->second->context != nullptr) ? JNI_TRUE : JNI_FALSE;
 }
-
 // Generate text
 JNIEXPORT jstring JNICALL
 Java_com_neuralmind_llama_LlamaJNI_generate(
@@ -235,7 +191,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         jint topK,
         jfloat repeatPenalty,
         jstring stopSequence) {
-
     // Get engine pointer (copy it so we can release mutex during generation)
     engineMutex.lock();
     auto it = engineMap.find(engineId);
@@ -243,25 +198,20 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         engineMutex.unlock();
         return cstringToJString(env, "Error: Engine not found");
     }
-
     LlamaEngineInstance* engine = it->second;
-
     if (!engine->model || !engine->context) {
         engineMutex.unlock();
         return cstringToJString(env, "Error: Model not loaded");
     }
-
     // Mark as generating
     engine->isGenerating = true;
     engine->stopRequested = false;
-
     // Update parameters
     engine->temperature = temperature;
     engine->topP = topP;
     engine->topK = topK;
     engine->repeatPenalty = repeatPenalty;
     engine->maxTokens = maxTokens;
-
     const char* stopSeq = jstringToCString(env, stopSequence);
     if (stopSeq) {
         engine->stopSequence = stopSeq;
@@ -269,22 +219,17 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     } else {
         engine->stopSequence.clear();
     }
-
     const char* promptStr = jstringToCString(env, prompt);
     if (!promptStr) {
         engine->isGenerating = false;
         engineMutex.unlock();
         return cstringToJString(env, "Error: Invalid prompt");
     }
-
     engineMutex.unlock();
-
     LOGI("Generating for prompt (len=%d), maxTokens=%d, temp=%.2f",
          (int)strlen(promptStr), maxTokens, temperature);
-
     // Get vocab from model
     const llama_vocab* vocab = llama_model_get_vocab(engine->model);
-
     // Tokenize prompt using new vocab-based API
     std::vector<llama_token> promptTokens(llama_vocab_n_tokens(vocab) * 2 + 1);
     int nPromptTokens = llama_tokenize(
@@ -296,20 +241,15 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         true,   // add_bos
         false   // parse_special
     );
-
     releaseJString(env, prompt, promptStr);
-
     if (nPromptTokens < 0) {
         engine->isGenerating = false;
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
-
     promptTokens.resize(nPromptTokens);
-
     // Create batch for prompt processing
     llama_batch batch = llama_batch_init((int)promptTokens.size(), 0, 1);
     batch.n_tokens = nPromptTokens;
-
     for (int i = 0; i < nPromptTokens; i++) {
         batch.token[i] = promptTokens[i];
         batch.pos[i] = i;
@@ -317,19 +257,18 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         batch.seq_id[i][0] = 0;
         batch.logits[i] = (i == nPromptTokens - 1) ? 1 : 0;
     }
-
+    // Clear KV cache before decode to ensure fresh inference
+    llama_kv_cache_clear(engine->context);
     // Decode prompt
     if (llama_decode(engine->context, batch)) {
         llama_batch_free(batch);
         engine->isGenerating = false;
         return cstringToJString(env, "Error: Failed to decode prompt");
     }
-
     // Build sampler chain using new sampler API
     llama_sampler_chain_params chainParams = llama_sampler_chain_default_params();
     chainParams.no_perf = true;
     struct llama_sampler* smpl = llama_sampler_chain_init(chainParams);
-
     // Order matters: temp -> top_k -> top_p -> penalties -> distribution
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
@@ -342,19 +281,18 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         0.0f              // penalty_present
     ));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
-
     // Generate tokens
     std::string generatedText;
     int nGenerated = 0;
     llama_token newToken = 0;
-
+    // Start timing for performance measurement
+    auto startTime = std::chrono::high_resolution_clock::now();
     while (nGenerated < engine->maxTokens) {
         // Check stop condition
         if (engine->stopRequested) {
             LOGI("Generation stopped by request");
             break;
         }
-
         // Check for stop sequence
         if (!engine->stopSequence.empty()) {
             std::string currentOutput = generatedText;
@@ -365,16 +303,13 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
                 break;
             }
         }
-
         // Sample next token using sampler chain
         newToken = llama_sampler_sample(smpl, engine->context, -1);
-
-        // Check for EOS using new vocab API
+        // Check for EOS using new vocab API (handles qwen/llama3/phi-3.5 etc.)
         if (llama_vocab_is_eog(vocab, newToken)) {
             LOGI("Generated EOS token");
             break;
         }
-
         // Convert token to piece using new vocab API
         char tokenBuf[128] = {0};
         int nWritten = llama_token_to_piece(
@@ -382,35 +317,29 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         if (nWritten > 0) {
             generatedText += tokenBuf;
         }
-
         // Accept token in sampler to update repetition penalty state
         llama_sampler_accept(smpl, newToken);
-
         // Create batch for single new token and decode
         llama_batch singleBatch = llama_batch_get_one(&newToken, 1);
         if (llama_decode(engine->context, singleBatch)) {
             llama_batch_free(singleBatch);
             break;
         }
-
         nGenerated++;
-
-        // Small yield to prevent UI blocking
-        if (nGenerated % 10 == 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
     }
-
+    // End timing and log performance
+    auto endTime = std::chrono::high_resolution_clock::now();
+    double elapsed = std::chrono::duration<double>(endTime - startTime).count();
+    if (nGenerated > 0 && elapsed > 0) {
+        LOGI("Performance: %d tokens in %.2f seconds = %.2f tok/s", nGenerated, elapsed, nGenerated / elapsed);
+    }
     // Cleanup
     llama_sampler_free(smpl);
-
+    llama_batch_free(batch);
     engine->isGenerating = false;
-
     LOGI("Generated %d tokens", nGenerated);
-
     return cstringToJString(env, generatedText);
 }
-
 // Streaming generation: generates tokens and calls onToken callback for each token
 // Returns the complete generated text at the end
 JNIEXPORT jstring JNICALL
@@ -425,7 +354,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         jint topK,
         jfloat repeatPenalty,
         jstring stopSequence) {
-
     // Get engine pointer
     engineMutex.lock();
     auto it = engineMap.find(engineId);
@@ -433,25 +361,20 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         engineMutex.unlock();
         return cstringToJString(env, "Error: Engine not found");
     }
-
     LlamaEngineInstance* engine = it->second;
-
     if (!engine->model || !engine->context) {
         engineMutex.unlock();
         return cstringToJString(env, "Error: Model not loaded");
     }
-
     // Mark as generating
     engine->isGenerating = true;
     engine->stopRequested = false;
-
     // Update parameters
     engine->temperature = temperature;
     engine->topP = topP;
     engine->topK = topK;
     engine->repeatPenalty = repeatPenalty;
     engine->maxTokens = maxTokens;
-
     const char* stopSeq = jstringToCString(env, stopSequence);
     if (stopSeq) {
         engine->stopSequence = stopSeq;
@@ -459,22 +382,17 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     } else {
         engine->stopSequence.clear();
     }
-
     const char* promptStr = jstringToCString(env, prompt);
     if (!promptStr) {
         engine->isGenerating = false;
         engineMutex.unlock();
         return cstringToJString(env, "Error: Invalid prompt");
     }
-
     engineMutex.unlock();
-
     LOGI("Streaming generation for prompt (len=%d), maxTokens=%d, temp=%.2f",
          (int)strlen(promptStr), maxTokens, temperature);
-
     // Get vocab from model
     const llama_vocab* vocab = llama_model_get_vocab(engine->model);
-
     // Tokenize prompt
     std::vector<llama_token> promptTokens(llama_vocab_n_tokens(vocab) * 2 + 1);
     int nPromptTokens = llama_tokenize(
@@ -486,20 +404,15 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         true,   // add_bos
         false   // parse_special
     );
-
     releaseJString(env, prompt, promptStr);
-
     if (nPromptTokens < 0) {
         engine->isGenerating = false;
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
-
     promptTokens.resize(nPromptTokens);
-
     // Create batch for prompt processing
     llama_batch batch = llama_batch_init((int)promptTokens.size(), 0, 1);
     batch.n_tokens = nPromptTokens;
-
     for (int i = 0; i < nPromptTokens; i++) {
         batch.token[i] = promptTokens[i];
         batch.pos[i] = i;
@@ -507,42 +420,39 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         batch.seq_id[i][0] = 0;
         batch.logits[i] = (i == nPromptTokens - 1) ? 1 : 0;
     }
-
+    // Clear KV cache before decode to ensure fresh inference
+    llama_kv_cache_clear(engine->context);
     // Decode prompt
     if (llama_decode(engine->context, batch)) {
         llama_batch_free(batch);
         engine->isGenerating = false;
         return cstringToJString(env, "Error: Failed to decode prompt");
     }
-
     // Build sampler chain
     llama_sampler_chain_params chainParams = llama_sampler_chain_default_params();
     chainParams.no_perf = true;
     struct llama_sampler* smpl = llama_sampler_chain_init(chainParams);
-
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, 1));
     llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
         topK, repeatPenalty, 0.0f, 0.0f));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
-
     // Get onToken method ID for callbacks
     jclass jniClass = env->GetObjectClass(thiz);
     jmethodID onTokenMethod = env->GetMethodID(jniClass, "onToken", "(Ljava/lang/String;)V");
-
     // Generate tokens with streaming callback
     std::string generatedText;
     int nGenerated = 0;
     llama_token newToken = 0;
-
+    // Start timing for performance measurement
+    auto startTime = std::chrono::high_resolution_clock::now();
     while (nGenerated < engine->maxTokens) {
         // Check stop condition
         if (engine->stopRequested) {
             LOGI("Streaming: stopped by request at token %d", nGenerated);
             break;
         }
-
         // Check for stop sequence
         if (!engine->stopSequence.empty()) {
             std::string currentOutput = generatedText;
@@ -553,23 +463,19 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
                 break;
             }
         }
-
         // Sample next token
         newToken = llama_sampler_sample(smpl, engine->context, -1);
-
-        // Check for EOS
+        // Check for EOS (handles qwen/llama3/phi-3.5 etc.)
         if (llama_vocab_is_eog(vocab, newToken)) {
             LOGI("Streaming: generated EOS at token %d", nGenerated);
             break;
         }
-
         // Convert token to piece
         char tokenBuf[128] = {0};
         int nWritten = llama_token_to_piece(
             vocab, newToken, tokenBuf, (int)sizeof(tokenBuf), 0, false);
         if (nWritten > 0) {
             generatedText += tokenBuf;
-
             // Stream callback: call Kotlin onToken method
             jstring jtoken = env->NewStringUTF(tokenBuf);
             if (jtoken) {
@@ -577,76 +483,62 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
                 env->DeleteLocalRef(jtoken);
             }
         }
-
         // Accept token in sampler
         llama_sampler_accept(smpl, newToken);
-
         // Decode single token
         llama_batch singleBatch = llama_batch_get_one(&newToken, 1);
         if (llama_decode(engine->context, singleBatch)) {
             llama_batch_free(singleBatch);
             break;
         }
-
         nGenerated++;
-
-        // Yield to allow other threads to run (important for streaming)
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-
+    // End timing and log performance
+    auto endTime = std::chrono::high_resolution_clock::now();
+    double elapsed = std::chrono::duration<double>(endTime - startTime).count();
+    if (nGenerated > 0 && elapsed > 0) {
+        LOGI("Streaming Performance: %d tokens in %.2f seconds = %.2f tok/s", nGenerated, elapsed, nGenerated / elapsed);
+    }
     // Cleanup
     llama_sampler_free(smpl);
-
+    llama_batch_free(batch);
     engine->isGenerating = false;
-
     LOGI("Streaming: generated %d tokens total", nGenerated);
-
     return cstringToJString(env, generatedText);
 }
-
 // Stop generation
 JNIEXPORT void JNICALL
 Java_com_neuralmind_llama_LlamaJNI_stopGeneration(JNIEnv* env, jobject thiz, jlong engineId) {
     std::lock_guard<std::mutex> lock(engineMutex);
-
     auto it = engineMap.find(engineId);
     if (it != engineMap.end()) {
         it->second->stopRequested = true;
         LOGI("Stop generation requested");
     }
 }
-
 // Check if generating
 JNIEXPORT jboolean JNICALL
 Java_com_neuralmind_llama_LlamaJNI_isGenerating(JNIEnv* env, jobject thiz, jlong engineId) {
     std::lock_guard<std::mutex> lock(engineMutex);
-
     auto it = engineMap.find(engineId);
     if (it == engineMap.end()) {
         return JNI_FALSE;
     }
-
     return it->second->isGenerating ? JNI_TRUE : JNI_FALSE;
 }
-
 // Get model info
 JNIEXPORT jstring JNICALL
 Java_com_neuralmind_llama_LlamaJNI_getModelInfo(JNIEnv* env, jobject thiz, jlong engineId) {
     std::lock_guard<std::mutex> lock(engineMutex);
-
     auto it = engineMap.find(engineId);
     if (it == engineMap.end()) {
         return cstringToJString(env, "Error: Engine not found");
     }
-
     LlamaEngineInstance* engine = it->second;
-
     if (!engine->model) {
         return cstringToJString(env, "No model loaded");
     }
-
     const llama_vocab* vocab = llama_model_get_vocab(engine->model);
-
     std::string info = "Model: " + engine->modelPath + "\n";
     info += "Vocab size: " + std::to_string(llama_vocab_n_tokens(vocab)) + "\n";
     info += "Training context size: " + std::to_string(llama_model_n_ctx_train(engine->model)) + "\n";
@@ -655,10 +547,8 @@ Java_com_neuralmind_llama_LlamaJNI_getModelInfo(JNIEnv* env, jobject thiz, jlong
     info += "Context size: " + std::to_string(llama_n_ctx(engine->context)) + "\n";
     info += "Status: ";
     info += (engine->context ? "Loaded" : "Not loaded");
-
     return cstringToJString(env, info);
 }
-
 // Set parameter
 JNIEXPORT void JNICALL
 Java_com_neuralmind_llama_LlamaJNI_setParameter(
@@ -667,19 +557,14 @@ Java_com_neuralmind_llama_LlamaJNI_setParameter(
         jlong engineId,
         jstring key,
         jstring value) {
-
     std::lock_guard<std::mutex> lock(engineMutex);
-
     auto it = engineMap.find(engineId);
     if (it == engineMap.end()) {
         return;
     }
-
     LlamaEngineInstance* engine = it->second;
-
     const char* keyStr = jstringToCString(env, key);
     const char* valueStr = jstringToCString(env, value);
-
     if (keyStr && valueStr) {
         if (strcmp(keyStr, "maxTokens") == 0) {
             engine->maxTokens = atoi(valueStr);
@@ -692,14 +577,11 @@ Java_com_neuralmind_llama_LlamaJNI_setParameter(
         } else if (strcmp(keyStr, "repeatPenalty") == 0) {
             engine->repeatPenalty = atof(valueStr);
         }
-
         LOGI("Set parameter: %s = %s", keyStr, valueStr);
     }
-
     releaseJString(env, key, keyStr);
     releaseJString(env, value, valueStr);
 }
-
 // Get parameter
 JNIEXPORT jstring JNICALL
 Java_com_neuralmind_llama_LlamaJNI_getParameter(
@@ -707,19 +589,14 @@ Java_com_neuralmind_llama_LlamaJNI_getParameter(
         jobject thiz,
         jlong engineId,
         jstring key) {
-
     std::lock_guard<std::mutex> lock(engineMutex);
-
     auto it = engineMap.find(engineId);
     if (it == engineMap.end()) {
         return cstringToJString(env, "");
     }
-
     LlamaEngineInstance* engine = it->second;
-
     const char* keyStr = jstringToCString(env, key);
     std::string value;
-
     if (keyStr) {
         if (strcmp(keyStr, "maxTokens") == 0) {
             value = std::to_string(engine->maxTokens);
@@ -733,12 +610,9 @@ Java_com_neuralmind_llama_LlamaJNI_getParameter(
             value = std::to_string(engine->repeatPenalty);
         }
     }
-
     releaseJString(env, key, keyStr);
-
     return cstringToJString(env, value);
 }
-
 // Get supported models
 JNIEXPORT jobjectArray JNICALL
 Java_com_neuralmind_llama_LlamaJNI_getSupportedModels(JNIEnv* env, jobject thiz) {
@@ -751,17 +625,12 @@ Java_com_neuralmind_llama_LlamaJNI_getSupportedModels(JNIEnv* env, jobject thiz)
         "phi-2",
         "gemma-2b"
     };
-
     int numModels = (int)(sizeof(models) / sizeof(models[0]));
-
     jclass stringClass = env->FindClass("java/lang/String");
     jobjectArray result = env->NewObjectArray(numModels, stringClass, nullptr);
-
     for (int i = 0; i < numModels; i++) {
         env->SetObjectArrayElement(result, i, env->NewStringUTF(models[i]));
     }
-
     return result;
 }
-
 } // extern "C"
