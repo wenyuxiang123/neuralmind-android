@@ -34,12 +34,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(llama_cpp)
 # ARM architecture-specific optimizations for Snapdragon 778G (Cortex-A78 + Cortex-A55)
-# Apply after FetchContent_MakeAvailable so ggml and llama targets are available
+# GGML_CPU_ARM_ARCH is the proper way to tell llama.cpp's ggml-cpu backend
+# which ARM features to target. This affects the ACTUAL computation target (ggml-cpu),
+# not just the top-level ggml/llama wrappers.
 if(ANDROID_ABI STREQUAL "arm64-v8a")
-    # Target ARM v8.2-A with dot product and FP16 arithmetic support
-    # Snapdragon 778G (Cortex-A78) supports these features for 2-4x matrix mul speedup
-    set_target_properties(ggml PROPERTIES COMPILE_FLAGS "-march=armv8.2-a+dotprod+fp16")
-    set_target_properties(llama PROPERTIES COMPILE_FLAGS "-march=armv8.2-a+dotprod+fp16")
+    set(GGML_CPU_ARM_ARCH "armv8.2-a+dotprod+fp16" CACHE STRING "ARM arch for CPU backend" FORCE)
+    message(STATUS "Setting GGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 for Snapdragon 778G")
 endif()
 # Create shared library for JNI
 add_library(neuralmind-jni SHARED llama-jni.cpp)
