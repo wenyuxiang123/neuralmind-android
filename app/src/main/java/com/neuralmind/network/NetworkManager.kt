@@ -16,10 +16,12 @@ class NetworkManager @Inject constructor() {
     
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(300, TimeUnit.SECONDS)   // 5分钟读超时，适合大文件
+        .readTimeout(600, TimeUnit.SECONDS)   // 10分钟读超时，适合大文件在慢网下的下载
         .writeTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)                  // 跟随 HTTP 重定向
         .followSslRedirects(true)              // 跟随 HTTPS 重定向（镜像站可能跳转）
+        .connectionPool(okhttp3.ConnectionPool(5, 5, TimeUnit.MINUTES))
+        .cache(null)                            // 大文件不需要缓存
         .build()
     
     // 当前活跃的下载调用，用于取消
@@ -98,11 +100,13 @@ class NetworkManager @Inject constructor() {
         val append = downloadedBytes > 0 && response.code == 206
         
         targetFile.parentFile?.mkdirs()
-        java.io.FileOutputStream(targetFile, append).use { output ->
+        java.io.BufferedOutputStream(java.io.FileOutputStream(targetFile, append), 262144).use { output ->
             body.byteStream().use { input ->
-                val buffer = ByteArray(8192)
+                val buffer = ByteArray(65536)  // 64KB buffer for better I/O performance
                 var bytesRead: Int
                 var lastMilestone = 0L
+                var lastCallbackBytes = 0L
+                val callbackInterval = 1048576L  // 1MB interval for progress callback
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
                     downloadedBytes += bytesRead
@@ -116,8 +120,15 @@ class NetworkManager @Inject constructor() {
                         }
                     }
                     
-                    progressCallback(downloadedBytes, totalBytes)
+                    // 降频回调：每 1MB 或进度变化>=1% 时回调
+                    if (downloadedBytes - lastCallbackBytes >= callbackInterval || 
+                        (totalBytes > 0 && (downloadedBytes * 100 / totalBytes) > (lastCallbackBytes * 100 / totalBytes))) {
+                        progressCallback(downloadedBytes, totalBytes)
+                        lastCallbackBytes = downloadedBytes
+                    }
                 }
+                // 下载完成，最终回调
+                progressCallback(downloadedBytes, totalBytes)
             }
         }
         
