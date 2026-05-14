@@ -159,7 +159,7 @@ fun DarkChatInput(inputText: String, onInputChanged: (String) -> Unit, onSend: (
                 IconButton(onClick = { showAttachMenu = !showAttachMenu }, colors = IconButtonDefaults.iconButtonColors(contentColor = TextSecondary)) {
                     Icon(Icons.Default.AddCircleOutline, contentDescription = "添加")
                 }
-                DropdownMenu(expanded = showAttachMenu, onDismissRequest = { showAttachMenu = false }, containerColor = CardBackground) {
+                DropdownMenu(expanded = showAttachMenu, onDismissRequest = { showAttachMenu = false }) {
                     DropdownMenuItem(text = { Text("文件", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false })
                     DropdownMenuItem(text = { Text("图片", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false })
                 }
