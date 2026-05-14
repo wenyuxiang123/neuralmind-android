@@ -25,6 +25,10 @@ android {
             cmake {
                 cppFlags += "-std=c++17"
                 arguments += listOf("-DANDROID_STL=c++_shared")
+                // Enable optimization for native code even in debug builds
+                // llama.cpp matrix operations are 20-50x slower without -O2
+                cFlags += "-O2"
+                cppFlags += "-O2"
             }
         }
 
