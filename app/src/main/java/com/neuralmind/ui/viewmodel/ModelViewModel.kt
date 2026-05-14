@@ -6,6 +6,7 @@ import com.neuralmind.core.Logger
 import com.neuralmind.data.repository.ModelRepository
 import com.neuralmind.domain.model.AIModel
 import com.neuralmind.domain.model.ModelCategory
+import com.neuralmind.llama.LlamaEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -13,7 +14,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ModelViewModel @Inject constructor(
-    private val modelRepository: ModelRepository
+    private val modelRepository: ModelRepository,
+    private val llamaEngine: LlamaEngine
 ) : ViewModel() {
     
     private val _uiState = MutableStateFlow(ModelUiState())
@@ -41,6 +43,18 @@ class ModelViewModel @Inject constructor(
                     it.copy(downloadingModelId = null, downloadProgress = 1f) 
                 }
                 Logger.i(Logger.Tags.VM, "downloadModel success: $modelId")
+                
+                // Download complete, now load model into engine
+                try {
+                    val loaded = llamaEngine.loadModel(modelId)
+                    if (loaded) {
+                        Logger.i(Logger.Tags.VM, "Model loaded into engine: $modelId")
+                    } else {
+                        Logger.w(Logger.Tags.VM, "Failed to load model into engine: $modelId")
+                    }
+                } catch (e: Exception) {
+                    Logger.e(Logger.Tags.VM, "Exception loading model into engine: $modelId", e)
+                }
             } catch (e: Exception) {
                 Logger.e(Logger.Tags.VM, "downloadModel failed: $modelId", e)
                 _uiState.update { 
@@ -55,6 +69,11 @@ class ModelViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 modelRepository.deleteModel(modelId)
+                // If deleted model was loaded, unload from engine
+                if (llamaEngine.isModelLoaded.value) {
+                    llamaEngine.unloadModel()
+                    Logger.i(Logger.Tags.VM, "Unloaded model from engine after delete: $modelId")
+                }
                 Logger.i(Logger.Tags.VM, "deleteModel success: $modelId")
             } catch (e: Exception) {
                 Logger.e(Logger.Tags.VM, "deleteModel failed: $modelId", e)
