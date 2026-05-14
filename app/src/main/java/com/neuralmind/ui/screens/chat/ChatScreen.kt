@@ -68,8 +68,8 @@ fun ChatScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(messages.asReversed(), key = { it.id }) { message -> DarkMessageBubble(message = message) }
             streamingMessage?.let { streaming -> item(key = "streaming") { StreamingMessageBubbleDark(message = streaming) } }
+            items(messages.asReversed(), key = { it.id }) { message -> DarkMessageBubble(message = message) }
             if (messages.isEmpty() && streamingMessage == null) { item { EmptyMessageState() } }
         }
 
