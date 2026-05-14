@@ -150,10 +150,21 @@ fun DarkMessageBubble(message: Message, modifier: Modifier = Modifier) {
 
 @Composable
 fun DarkChatInput(inputText: String, onInputChanged: (String) -> Unit, onSend: () -> Unit, isLoading: Boolean, modifier: Modifier = Modifier) {
+    var showAttachMenu by remember { mutableStateOf(false) }
+
     Surface(modifier = modifier, color = BackgroundSecondary, shadowElevation = 8.dp) {
-        Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IconButton(onClick = { }, colors = IconButtonDefaults.iconButtonColors(contentColor = TextSecondary)) { Icon(Icons.Default.AttachFile, contentDescription = "附件") }
-            IconButton(onClick = { }, colors = IconButtonDefaults.iconButtonColors(contentColor = TextSecondary)) { Icon(Icons.Default.Image, contentDescription = "图片") }
+        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            // 合并附件+图片为一个按钮
+            Box {
+                IconButton(onClick = { showAttachMenu = !showAttachMenu }, colors = IconButtonDefaults.iconButtonColors(contentColor = TextSecondary)) {
+                    Icon(Icons.Default.AddCircleOutline, contentDescription = "添加")
+                }
+                DropdownMenu(expanded = showAttachMenu, onDismissRequest = { showAttachMenu = false }, containerColor = CardBackground) {
+                    DropdownMenuItem(text = { Text("文件", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false })
+                    DropdownMenuItem(text = { Text("图片", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false })
+                }
+            }
+            // 扩大输入框
             TextField(
                 value = inputText, onValueChange = onInputChanged, modifier = Modifier.weight(1f),
                 placeholder = { Text("输入消息...", color = TextTertiary) },
@@ -162,20 +173,20 @@ fun DarkChatInput(inputText: String, onInputChanged: (String) -> Unit, onSend: (
                     focusedIndicatorColor = GradientStart, unfocusedIndicatorColor = CardBorder, cursorColor = GradientStart,
                     focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, disabledTextColor = TextPrimary
                 ),
-                shape = RoundedCornerShape(24.dp), maxLines = 4
+                shape = RoundedCornerShape(24.dp), minLines = 1, maxLines = 5
             )
-            // 语音按钮（原表情位置）
+            // 语音按钮
             IconButton(onClick = { }, colors = IconButtonDefaults.iconButtonColors(contentColor = TextSecondary)) { Icon(Icons.Default.Mic, contentDescription = "语音") }
-            // 发送按钮（原语音位置）
+            // 发送按钮
             Box(
-                modifier = Modifier.size(48.dp).clip(CircleShape).background(brush = if (inputText.isNotBlank() && !isLoading) Brush.linearGradient(colors = listOf(GradientStart, GradientEnd)) else Brush.linearGradient(colors = listOf(CardBorder, CardBorder))),
+                modifier = Modifier.size(44.dp).clip(CircleShape).background(brush = if (inputText.isNotBlank() && !isLoading) Brush.linearGradient(colors = listOf(GradientStart, GradientEnd)) else Brush.linearGradient(colors = listOf(CardBorder, CardBorder))),
                 contentAlignment = Alignment.Center
             ) {
                 IconButton(onClick = onSend, enabled = inputText.isNotBlank() && !isLoading) {
                     if (isLoading) {
                         LinearProgressIndicator(color = GradientStart, trackColor = CardBorder, modifier = Modifier.fillMaxWidth())
                     } else {
-                        Icon(Icons.Default.Send, contentDescription = "发送", tint = if (inputText.isNotBlank()) Color.White else TextTertiary)
+                        Icon(Icons.Default.Send, contentDescription = "发送", tint = if (inputText.isNotBlank()) Color.White else TextTertiary, modifier = Modifier.size(20.dp))
                     }
                 }
             }
