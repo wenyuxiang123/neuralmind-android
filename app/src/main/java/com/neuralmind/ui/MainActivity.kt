@@ -23,6 +23,7 @@ import com.neuralmind.ui.navigation.AppNavigation
 import com.neuralmind.ui.navigation.Screen
 import com.neuralmind.ui.theme.*
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -44,7 +45,6 @@ fun NeuralMindApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    // 使用 rememberCoroutineScope 代替 GlobalScope，提供正确的 MonotonicFrameClock
     val scope = rememberCoroutineScope()
 
     val showDrawerRoutes = listOf(
