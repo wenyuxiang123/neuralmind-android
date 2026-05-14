@@ -1,10 +1,7 @@
 cmake_minimum_required(VERSION 3.22.1)
-
 project("neuralmind")
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 # Disable everything in llama.cpp we don't need
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -16,9 +13,9 @@ set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
 set(GGML_OPENBLAS OFF CACHE BOOL "" FORCE)
 set(GGML_BLAS OFF CACHE BOOL "" FORCE)
 set(GGML_RPC OFF CACHE BOOL "" FORCE)
-set(GGML_CPU_LLAMAFILE OFF CACHE BOOL "" FORCE)
+# Enable LLAMAFILE optimizations for ARM processors (improves inference speed)
+set(GGML_CPU_LLAMAFILE ON CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-
 # Architecture-specific settings for 32-bit ARM compatibility
 if(ANDROID_ABI STREQUAL "armeabi-v7a")
     # Disable AArch64-only optimizations on 32-bit ARM
@@ -28,7 +25,6 @@ if(ANDROID_ABI STREQUAL "armeabi-v7a")
     # Ensure we use IEEE format for half precision
     add_compile_options(-mfp16-format=ieee)
 endif()
-
 # Fetch llama.cpp from GitHub release archive
 include(FetchContent)
 FetchContent_Declare(
@@ -36,12 +32,9 @@ FetchContent_Declare(
     URL      https://github.com/ggml-org/llama.cpp/archive/refs/tags/b9128.tar.gz
     SOURCE_SUBDIR .
 )
-
 FetchContent_MakeAvailable(llama_cpp)
-
 # Create shared library for JNI
 add_library(neuralmind-jni SHARED llama-jni.cpp)
-
 # Include directories
 target_include_directories(neuralmind-jni PRIVATE 
     ${CMAKE_SOURCE_DIR}
@@ -49,7 +42,6 @@ target_include_directories(neuralmind-jni PRIVATE
     ${llama_cpp_SOURCE_DIR}/ggml/include
     ${llama_cpp_SOURCE_DIR}/ggml/src
 )
-
 # Link libraries
 target_link_libraries(neuralmind-jni 
     llama
