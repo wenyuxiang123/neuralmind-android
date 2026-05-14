@@ -11,6 +11,13 @@
 #include <chrono>
 #include <cstring>
 #include <android/log.h>
+#include <sched.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <errno.h>
 // llama.h is in ${llama_cpp_SOURCE_DIR}/include, which is added via CMakeLists.txt
 #include "llama.h"
 // Logging macros
@@ -63,6 +70,93 @@ static void releaseJString(JNIEnv* env, jstring jstr, const char* cstr) {
 static jstring cstringToJString(JNIEnv* env, const std::string& str) {
     return env->NewStringUTF(str.c_str());
 }
+// Thread affinity: pin current thread to big (performance) CPU cores
+// This is critical for ARM big.LITTLE devices like Snapdragon 778G where
+// big cores (Cortex-A78) support dotprod but little cores (Cortex-A55) don't.
+// When ggml-cpu is compiled with GGML_CPU_ARM_ARCH=armv8.2-a+dotprod,
+// dotprod instructions are generated for all compute kernels.
+// Without thread affinity, the OS may schedule threads on little cores → SIGILL.
+static bool pin_to_big_cores() {
+    int n_cpus = sysconf(_SC_NPROCESSORS_CONF);
+    if (n_cpus <= 0) {
+        LOGW("Cannot determine CPU count for thread affinity");
+        return false;
+    }
+
+    // Read max frequency for each CPU from sysfs
+    struct CpuFreqInfo {
+        int id;
+        long max_freq_khz;
+    };
+    std::vector<CpuFreqInfo> cpus;
+    long highest_freq = 0;
+
+    for (int i = 0; i < n_cpus; i++) {
+        CpuFreqInfo info;
+        info.id = i;
+        info.max_freq_khz = 0;
+
+        std::string freq_path = "/sys/devices/system/cpu/cpu" + std::to_string(i) + "/cpufreq/cpuinfo_max_freq";
+        std::ifstream freq_file(freq_path);
+        if (freq_file.is_open()) {
+            freq_file >> info.max_freq_khz;
+        }
+
+        if (info.max_freq_khz > highest_freq) {
+            highest_freq = info.max_freq_khz;
+        }
+        cpus.push_back(info);
+    }
+
+    cpu_set_t big_core_mask;
+    CPU_ZERO(&big_core_mask);
+    int n_big = 0;
+
+    if (highest_freq > 0) {
+        // Frequency-based detection: big cores have freq >= 80% of maximum
+        long threshold = highest_freq * 80 / 100;
+        for (const auto& cpu : cpus) {
+            if (cpu.max_freq_khz >= threshold) {
+                CPU_SET(cpu.id, &big_core_mask);
+                n_big++;
+                LOGI("Big core: CPU %d (freq=%ld kHz)", cpu.id, cpu.max_freq_khz);
+            }
+        }
+    }
+
+    if (n_big == 0) {
+        // Fallback: assume upper half of CPUs are big cores
+        // This is the common layout on ARM big.LITTLE SoCs
+        LOGW("Cannot read CPU frequencies, using fallback (upper half CPUs)");
+        int start = n_cpus / 2;
+        for (int i = start; i < n_cpus; i++) {
+            CPU_SET(i, &big_core_mask);
+            n_big++;
+        }
+    }
+
+    if (n_big == 0) {
+        LOGW("No big cores detected, skipping thread affinity");
+        return false;
+    }
+
+    LOGI("Pinning thread to %d big cores", n_big);
+
+    if (sched_setaffinity(0, sizeof(big_core_mask), &big_core_mask) != 0) {
+        LOGW("Failed to set thread affinity: %s", strerror(errno));
+        return false;
+    }
+
+    // Verify affinity was set
+    cpu_set_t verify_mask;
+    CPU_ZERO(&verify_mask);
+    if (sched_getaffinity(0, sizeof(verify_mask), &verify_mask) == 0) {
+        int count = CPU_COUNT(&verify_mask);
+        LOGI("Thread affinity verified: %d cores", count);
+    }
+
+    return true;
+}
 extern "C" {
 // Create a new llama engine instance
 JNIEXPORT jlong JNICALL
@@ -99,6 +193,10 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
         return JNI_FALSE;
     }
     LlamaEngineInstance* engine = it->second;
+
+    // Pin thread to big CPU cores for dotprod instruction safety and performance
+    pin_to_big_cores();
+
     // Free existing model if any
     if (engine->context) {
         llama_free(engine->context);
@@ -204,6 +302,10 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         engineMutex.unlock();
         return cstringToJString(env, "Error: Model not loaded");
     }
+
+    // Pin thread to big CPU cores for dotprod instruction safety and performance
+    pin_to_big_cores();
+
     // Mark as generating
     engine->isGenerating = true;
     engine->stopRequested = false;
@@ -367,6 +469,10 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         engineMutex.unlock();
         return cstringToJString(env, "Error: Model not loaded");
     }
+
+    // Pin thread to big CPU cores for dotprod instruction safety and performance
+    pin_to_big_cores();
+
     // Mark as generating
     engine->isGenerating = true;
     engine->stopRequested = false;
@@ -417,11 +523,11 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     for (int i = 0; i < nPromptTokens; i++) {
         batch.token[i] = promptTokens[i];
         batch.pos[i] = i;
+
         batch.n_seq_id[i] = 1;
         batch.seq_id[i][0] = 0;
         batch.logits[i] = (i == nPromptTokens - 1) ? 1 : 0;
     }
-
     // Clear KV cache before decode to ensure fresh inference
     llama_memory_clear(llama_get_memory(engine->context), true);
     // Decode prompt
