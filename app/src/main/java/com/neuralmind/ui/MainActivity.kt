@@ -23,9 +23,6 @@ import com.neuralmind.ui.navigation.AppNavigation
 import com.neuralmind.ui.navigation.Screen
 import com.neuralmind.ui.theme.*
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -47,6 +44,8 @@ fun NeuralMindApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    // 使用 rememberCoroutineScope 代替 GlobalScope，提供正确的 MonotonicFrameClock
+    val scope = rememberCoroutineScope()
 
     val showDrawerRoutes = listOf(
         Screen.ChatList.route, Screen.ModelLibrary.route, Screen.Memory.route,
@@ -67,7 +66,7 @@ fun NeuralMindApp() {
                                 launchSingleTop = true
                                 restoreState = true
                             }
-                            GlobalScope.launch(Dispatchers.Main) { drawerState.close() }
+                            scope.launch { drawerState.close() }
                         }
                     )
                 }
@@ -97,7 +96,7 @@ fun NeuralMindApp() {
                             }
                         },
                         navigationIcon = {
-                            IconButton(onClick = { GlobalScope.launch(Dispatchers.Main) { drawerState.open() } }) {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
                                 Icon(Icons.Default.Menu, contentDescription = "菜单", tint = TextPrimary)
                             }
                         },
