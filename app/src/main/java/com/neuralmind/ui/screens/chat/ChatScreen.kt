@@ -164,14 +164,19 @@ fun DarkChatInput(inputText: String, onInputChanged: (String) -> Unit, onSend: (
                 ),
                 shape = RoundedCornerShape(24.dp), maxLines = 4
             )
-            IconButton(onClick = { }, colors = IconButtonDefaults.iconButtonColors(contentColor = TextSecondary)) { Icon(Icons.Default.EmojiEmotions, contentDescription = "表情") }
+            // 语音按钮（原表情位置）
+            IconButton(onClick = { }, colors = IconButtonDefaults.iconButtonColors(contentColor = TextSecondary)) { Icon(Icons.Default.Mic, contentDescription = "语音") }
+            // 发送按钮（原语音位置）
             Box(
                 modifier = Modifier.size(48.dp).clip(CircleShape).background(brush = if (inputText.isNotBlank() && !isLoading) Brush.linearGradient(colors = listOf(GradientStart, GradientEnd)) else Brush.linearGradient(colors = listOf(CardBorder, CardBorder))),
                 contentAlignment = Alignment.Center
             ) {
                 IconButton(onClick = onSend, enabled = inputText.isNotBlank() && !isLoading) {
-                    if (isLoading) { LinearProgressIndicator(color = GradientStart, trackColor = CardBorder, modifier = Modifier.fillMaxWidth()) }
-                    else { Icon(Icons.Default.Mic, contentDescription = "语音", tint = if (inputText.isNotBlank()) Color.White else TextTertiary) }
+                    if (isLoading) {
+                        LinearProgressIndicator(color = GradientStart, trackColor = CardBorder, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        Icon(Icons.Default.Send, contentDescription = "发送", tint = if (inputText.isNotBlank()) Color.White else TextTertiary)
+                    }
                 }
             }
         }
