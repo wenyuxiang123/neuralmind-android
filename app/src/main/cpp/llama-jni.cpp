@@ -11,15 +11,15 @@
 #include <chrono>
 #include <cstring>
 #include <android/log.h>
-#include <sched.h>
 #include <unistd.h>
-#include <dirent.h>
 #include <fstream>
 #include <sstream>
 #include <algorithm>
 #include <errno.h>
 // llama.h is in ${llama_cpp_SOURCE_DIR}/include, which is added via CMakeLists.txt
 #include "llama.h"
+// ggml.h provides ggml_threadpool API for CPU affinity
+#include "ggml.h"
 // Logging macros
 #define LOG_TAG "LlamaJNI"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
@@ -30,6 +30,8 @@
 struct LlamaEngineInstance {
     llama_model * model = nullptr;
     llama_context * context = nullptr;
+    ggml_threadpool_t threadpool = nullptr;
+    ggml_threadpool_t threadpool_batch = nullptr;
     std::atomic<bool> isGenerating{false};
     std::atomic<bool> stopRequested{false};
     std::string modelPath;
@@ -42,8 +44,17 @@ struct LlamaEngineInstance {
     std::string stopSequence;
     ~LlamaEngineInstance() {
         if (context) {
+            llama_detach_threadpool(context);
             llama_free(context);
             context = nullptr;
+        }
+        if (threadpool_batch) {
+            ggml_threadpool_free(threadpool_batch);
+            threadpool_batch = nullptr;
+        }
+        if (threadpool) {
+            ggml_threadpool_free(threadpool);
+            threadpool = nullptr;
         }
         if (model) {
             llama_model_free(model);
@@ -70,17 +81,17 @@ static void releaseJString(JNIEnv* env, jstring jstr, const char* cstr) {
 static jstring cstringToJString(JNIEnv* env, const std::string& str) {
     return env->NewStringUTF(str.c_str());
 }
-// Thread affinity: pin current thread to big (performance) CPU cores
-// This is critical for ARM big.LITTLE devices like Snapdragon 778G where
-// big cores (Cortex-A78) support dotprod but little cores (Cortex-A55) don't.
-// When ggml-cpu is compiled with GGML_CPU_ARM_ARCH=armv8.2-a+dotprod,
-// dotprod instructions are generated for all compute kernels.
-// Without thread affinity, the OS may schedule threads on little cores → SIGILL.
-static bool pin_to_big_cores() {
+// Create a ggml_threadpool with cpumask set to big (performance) CPU cores
+// This is the correct way to ensure ALL worker threads (not just the calling thread)
+// are pinned to big cores on ARM big.LITTLE devices.
+// Previous approach using sched_setaffinity only pinned JNI calling thread,
+// but llama.cpp internal worker threads (from ggml_graph_compute threadpool)
+// were not bound and could be scheduled on Cortex-A55 little cores.
+static ggml_threadpool_t create_big_core_threadpool(int n_threads) {
     int n_cpus = sysconf(_SC_NPROCESSORS_CONF);
     if (n_cpus <= 0) {
-        LOGW("Cannot determine CPU count for thread affinity");
-        return false;
+        LOGW("Cannot determine CPU count for threadpool cpumask");
+        return nullptr;
     }
 
     // Read max frequency for each CPU from sysfs
@@ -108,54 +119,52 @@ static bool pin_to_big_cores() {
         cpus.push_back(info);
     }
 
-    cpu_set_t big_core_mask;
-    CPU_ZERO(&big_core_mask);
+    // Build cpumask: only big cores (freq >= 80% of maximum)
+    struct ggml_threadpool_params tpp = ggml_threadpool_params_default(n_threads);
     int n_big = 0;
 
     if (highest_freq > 0) {
-        // Frequency-based detection: big cores have freq >= 80% of maximum
         long threshold = highest_freq * 80 / 100;
         for (const auto& cpu : cpus) {
             if (cpu.max_freq_khz >= threshold) {
-                CPU_SET(cpu.id, &big_core_mask);
+                tpp.cpumask[cpu.id] = true;
                 n_big++;
-                LOGI("Big core: CPU %d (freq=%ld kHz)", cpu.id, cpu.max_freq_khz);
+                LOGI("Threadpool big core: CPU %d (freq=%ld kHz)", cpu.id, cpu.max_freq_khz);
             }
         }
     }
 
     if (n_big == 0) {
         // Fallback: assume upper half of CPUs are big cores
-        // This is the common layout on ARM big.LITTLE SoCs
         LOGW("Cannot read CPU frequencies, using fallback (upper half CPUs)");
         int start = n_cpus / 2;
-        for (int i = start; i < n_cpus; i++) {
-            CPU_SET(i, &big_core_mask);
+        for (int i = start; i < n_cpus && i < GGML_MAX_N_THREADS; i++) {
+            tpp.cpumask[i] = true;
             n_big++;
         }
     }
 
     if (n_big == 0) {
-        LOGW("No big cores detected, skipping thread affinity");
-        return false;
+        LOGW("No big cores detected, skipping custom threadpool");
+        return nullptr;
     }
 
-    LOGI("Pinning thread to %d big cores", n_big);
+    // Use strict CPU placement to ensure each thread is pinned to a specific big core
+    tpp.strict_cpu = true;
+    // Set polling for better throughput during inference
+    tpp.poll = 50;
 
-    if (sched_setaffinity(0, sizeof(big_core_mask), &big_core_mask) != 0) {
-        LOGW("Failed to set thread affinity: %s", strerror(errno));
-        return false;
+    LOGI("Creating threadpool with %d threads on %d big cores (strict=%d, poll=%d)",
+         n_threads, n_big, tpp.strict_cpu, tpp.poll);
+
+    ggml_threadpool_t threadpool = ggml_threadpool_new(&tpp);
+    if (!threadpool) {
+        LOGE("Failed to create threadpool");
+        return nullptr;
     }
 
-    // Verify affinity was set
-    cpu_set_t verify_mask;
-    CPU_ZERO(&verify_mask);
-    if (sched_getaffinity(0, sizeof(verify_mask), &verify_mask) == 0) {
-        int count = CPU_COUNT(&verify_mask);
-        LOGI("Thread affinity verified: %d cores", count);
-    }
-
-    return true;
+    LOGI("Threadpool created successfully");
+    return threadpool;
 }
 extern "C" {
 // Create a new llama engine instance
@@ -194,13 +203,19 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
     }
     LlamaEngineInstance* engine = it->second;
 
-    // Pin thread to big CPU cores for dotprod instruction safety and performance
-    pin_to_big_cores();
-
     // Free existing model if any
     if (engine->context) {
+        llama_detach_threadpool(engine->context);
         llama_free(engine->context);
         engine->context = nullptr;
+    }
+    if (engine->threadpool_batch) {
+        ggml_threadpool_free(engine->threadpool_batch);
+        engine->threadpool_batch = nullptr;
+    }
+    if (engine->threadpool) {
+        ggml_threadpool_free(engine->threadpool);
+        engine->threadpool = nullptr;
     }
     if (engine->model) {
         llama_model_free(engine->model);
@@ -241,10 +256,22 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
         releaseJString(env, modelPath, path);
         return JNI_FALSE;
     }
+
+    // Create and attach threadpool pinned to big CPU cores
+    // This ensures all llama.cpp worker threads run on Cortex-A78+ (dotprod-capable)
+    // ggml_threadpool_new() with cpumask ensures worker threads inherit affinity
+    engine->threadpool = create_big_core_threadpool(ctx_params.n_threads);
+    engine->threadpool_batch = create_big_core_threadpool(ctx_params.n_threads_batch);
+    if (engine->threadpool) {
+        llama_attach_threadpool(engine->context, engine->threadpool, engine->threadpool_batch);
+        LOGI("Attached big-core threadpool to llama context");
+    }
+
     engine->modelPath = path;
     releaseJString(env, modelPath, path);
-    LOGI("Model loaded successfully: %s (n_ctx=%d, n_batch=%d, n_threads=%d)",
-         engine->modelPath.c_str(), ctx_params.n_ctx, ctx_params.n_batch, ctx_params.n_threads);
+    LOGI("Model loaded successfully: %s (n_ctx=%d, n_batch=%d, n_threads=%d, threadpool=%s)",
+         engine->modelPath.c_str(), ctx_params.n_ctx, ctx_params.n_batch, ctx_params.n_threads,
+         engine->threadpool ? "big-core" : "default");
     return JNI_TRUE;
 }
 // Unload model
@@ -257,8 +284,17 @@ Java_com_neuralmind_llama_LlamaJNI_unloadModel(JNIEnv* env, jobject thiz, jlong 
     }
     LlamaEngineInstance* engine = it->second;
     if (engine->context) {
+        llama_detach_threadpool(engine->context);
         llama_free(engine->context);
         engine->context = nullptr;
+    }
+    if (engine->threadpool_batch) {
+        ggml_threadpool_free(engine->threadpool_batch);
+        engine->threadpool_batch = nullptr;
+    }
+    if (engine->threadpool) {
+        ggml_threadpool_free(engine->threadpool);
+        engine->threadpool = nullptr;
     }
     if (engine->model) {
         llama_model_free(engine->model);
@@ -302,9 +338,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         engineMutex.unlock();
         return cstringToJString(env, "Error: Model not loaded");
     }
-
-    // Pin thread to big CPU cores for dotprod instruction safety and performance
-    pin_to_big_cores();
 
     // Mark as generating
     engine->isGenerating = true;
@@ -470,9 +503,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         return cstringToJString(env, "Error: Model not loaded");
     }
 
-    // Pin thread to big CPU cores for dotprod instruction safety and performance
-    pin_to_big_cores();
-
     // Mark as generating
     engine->isGenerating = true;
     engine->stopRequested = false;
@@ -523,7 +553,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     for (int i = 0; i < nPromptTokens; i++) {
         batch.token[i] = promptTokens[i];
         batch.pos[i] = i;
-
         batch.n_seq_id[i] = 1;
         batch.seq_id[i][0] = 0;
         batch.logits[i] = (i == nPromptTokens - 1) ? 1 : 0;
@@ -653,6 +682,7 @@ Java_com_neuralmind_llama_LlamaJNI_getModelInfo(JNIEnv* env, jobject thiz, jlong
     info += "Embedding size: " + std::to_string(llama_model_n_embd(engine->model)) + "\n";
     info += "Layers: " + std::to_string(llama_model_n_layer(engine->model)) + "\n";
     info += "Context size: " + std::to_string(llama_n_ctx(engine->context)) + "\n";
+    info += "Threadpool: " + std::string(engine->threadpool ? "big-core" : "default") + "\n";
     info += "Status: ";
     info += (engine->context ? "Loaded" : "Not loaded");
     return cstringToJString(env, info);
