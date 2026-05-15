@@ -234,3 +234,83 @@ interface ToolModuleDao {
     @Query("UPDATE tool_modules SET isDownloading = :isDownloading, downloadProgress = :progress WHERE id = :id")
     suspend fun setDownloading(id: String, isDownloading: Boolean, progress: Float)
 }
+
+/**
+ * DAO for KV segment persistence.
+ * Manages metadata for cross-session KV cache segments.
+ */
+@Dao
+interface KvSegmentDao {
+    @Query("SELECT * FROM kv_segments WHERE conversationId = :conversationId ORDER BY segmentIndex ASC")
+    fun getSegmentsByConversation(conversationId: Long): Flow<List<KvSegmentEntity>>
+    
+    @Query("SELECT * FROM kv_segments WHERE conversationId = :conversationId ORDER BY segmentIndex DESC LIMIT 1")
+    suspend fun getLatestSegment(conversationId: Long): KvSegmentEntity?
+    
+    @Query("SELECT * FROM kv_segments WHERE id = :id")
+    suspend fun getSegmentById(id: Long): KvSegmentEntity?
+    
+    @Query("SELECT * FROM kv_segments WHERE conversationId = :conversationId AND segmentIndex = :index")
+    suspend fun getSegmentByIndex(conversationId: Long, index: Int): KvSegmentEntity?
+    
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(segment: KvSegmentEntity): Long
+    
+    @Update
+    suspend fun update(segment: KvSegmentEntity)
+    
+    @Delete
+    suspend fun delete(segment: KvSegmentEntity)
+    
+    @Query("DELETE FROM kv_segments WHERE conversationId = :conversationId")
+    suspend fun deleteByConversation(conversationId: Long)
+    
+    @Query("DELETE FROM kv_segments WHERE createdAt < :timestamp")
+    suspend fun deleteOlderThan(timestamp: Long)
+    
+    @Query("SELECT COUNT(*) FROM kv_segments WHERE conversationId = :conversationId")
+    suspend fun getSegmentCount(conversationId: Long): Int
+}
+
+/**
+ * DAO for content fingerprints.
+ * Enables semantic similarity search across memories, messages, KV segments, and documents.
+ */
+@Dao
+interface ContentFingerprintDao {
+    @Query("SELECT * FROM content_fingerprints ORDER BY createdAt DESC")
+    fun getAllFingerprints(): Flow<List<ContentFingerprintEntity>>
+    
+    @Query("SELECT * FROM content_fingerprints WHERE contentType = :type ORDER BY createdAt DESC")
+    fun getFingerprintsByType(type: String): Flow<List<ContentFingerprintEntity>>
+    
+    @Query("SELECT * FROM content_fingerprints WHERE contentType = :type AND contentId = :contentId LIMIT 1")
+    suspend fun getFingerprintByContent(type: String, contentId: Long): ContentFingerprintEntity?
+    
+    @Query("SELECT * FROM content_fingerprints WHERE conversationId = :conversationId ORDER BY createdAt DESC")
+    fun getFingerprintsByConversation(conversationId: Long): Flow<List<ContentFingerprintEntity>>
+    
+    @Query("SELECT * FROM content_fingerprints WHERE contentType = 'memory' ORDER BY importance DESC")
+    fun getMemoryFingerprints(): Flow<List<ContentFingerprintEntity>>
+    
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(fingerprint: ContentFingerprintEntity): Long
+    
+    @Update
+    suspend fun update(fingerprint: ContentFingerprintEntity)
+    
+    @Delete
+    suspend fun delete(fingerprint: ContentFingerprintEntity)
+    
+    @Query("DELETE FROM content_fingerprints WHERE contentType = :type AND contentId = :contentId")
+    suspend fun deleteByContent(type: String, contentId: Long)
+    
+    @Query("DELETE FROM content_fingerprints WHERE conversationId = :conversationId")
+    suspend fun deleteByConversation(conversationId: Long)
+    
+    @Query("SELECT COUNT(*) FROM content_fingerprints")
+    suspend fun getFingerprintCount(): Int
+    
+    @Query("SELECT * FROM content_fingerprints WHERE keywords LIKE '%' || :keyword || '%'")
+    fun searchByKeyword(keyword: String): Flow<List<ContentFingerprintEntity>>
+}
