@@ -35,6 +35,9 @@ struct LlamaEngineInstance {
     std::atomic<bool> isGenerating{false};
     std::atomic<bool> stopRequested{false};
     std::string modelPath;
+    // KV cache prefix matching fields
+    std::vector<llama_token> cached_prompt_tokens;
+    bool has_cached_prompt = false;
     // Inference parameters
     int maxTokens = 512;
     float temperature = 0.7f;
@@ -82,18 +85,12 @@ static jstring cstringToJString(JNIEnv* env, const std::string& str) {
     return env->NewStringUTF(str.c_str());
 }
 // Create a ggml_threadpool with cpumask set to big (performance) CPU cores
-// This is the correct way to ensure ALL worker threads (not just the calling thread)
-// are pinned to big cores on ARM big.LITTLE devices.
-// Previous approach using sched_setaffinity only pinned JNI calling thread,
-// but llama.cpp internal worker threads (from ggml_graph_compute threadpool)
-// were not bound and could be scheduled on Cortex-A55 little cores.
 static ggml_threadpool_t create_big_core_threadpool(int n_threads) {
     int n_cpus = sysconf(_SC_NPROCESSORS_CONF);
     if (n_cpus <= 0) {
         LOGW("Cannot determine CPU count for threadpool cpumask");
         return nullptr;
     }
-
     // Read max frequency for each CPU from sysfs
     struct CpuFreqInfo {
         int id;
@@ -101,28 +98,23 @@ static ggml_threadpool_t create_big_core_threadpool(int n_threads) {
     };
     std::vector<CpuFreqInfo> cpus;
     long highest_freq = 0;
-
     for (int i = 0; i < n_cpus; i++) {
         CpuFreqInfo info;
         info.id = i;
         info.max_freq_khz = 0;
-
         std::string freq_path = "/sys/devices/system/cpu/cpu" + std::to_string(i) + "/cpufreq/cpuinfo_max_freq";
         std::ifstream freq_file(freq_path);
         if (freq_file.is_open()) {
             freq_file >> info.max_freq_khz;
         }
-
         if (info.max_freq_khz > highest_freq) {
             highest_freq = info.max_freq_khz;
         }
         cpus.push_back(info);
     }
-
     // Build cpumask: only big cores (freq >= 80% of maximum)
     struct ggml_threadpool_params tpp = ggml_threadpool_params_default(n_threads);
     int n_big = 0;
-
     if (highest_freq > 0) {
         long threshold = highest_freq * 80 / 100;
         for (const auto& cpu : cpus) {
@@ -133,7 +125,6 @@ static ggml_threadpool_t create_big_core_threadpool(int n_threads) {
             }
         }
     }
-
     if (n_big == 0) {
         // Fallback: assume upper half of CPUs are big cores
         LOGW("Cannot read CPU frequencies, using fallback (upper half CPUs)");
@@ -143,28 +134,51 @@ static ggml_threadpool_t create_big_core_threadpool(int n_threads) {
             n_big++;
         }
     }
-
     if (n_big == 0) {
         LOGW("No big cores detected, skipping custom threadpool");
         return nullptr;
     }
-
     // Use strict CPU placement to ensure each thread is pinned to a specific big core
     tpp.strict_cpu = true;
     // Set polling for better throughput during inference
     tpp.poll = 50;
-
     LOGI("Creating threadpool with %d threads on %d big cores (strict=%d, poll=%d)",
          n_threads, n_big, tpp.strict_cpu, tpp.poll);
-
     ggml_threadpool_t threadpool = ggml_threadpool_new(&tpp);
     if (!threadpool) {
         LOGE("Failed to create threadpool");
         return nullptr;
     }
-
     LOGI("Threadpool created successfully");
     return threadpool;
+}
+// Helper: Calculate dynamic n_ctx based on model parameters
+static int calculate_dynamic_n_ctx(const llama_model* model) {
+    if (!model) return 1024;
+    // llama_model_n_params returns number of parameters (e.g., 5600000000 for 5.6B)
+    const int64_t n_params = llama_model_n_params(model);
+    const double params_billions = n_params / 1e9;
+    LOGI("Model parameters: %.1fB, calculating n_ctx", params_billions);
+    if (params_billions <= 1.0) {
+        return 4096;  // 1B and smaller: larger context
+    } else if (params_billions <= 3.0) {
+        return 2048;  // 1B-3B: medium context
+    } else {
+        return 1024;  // >3B: standard context
+    }
+}
+// Helper: Find common prefix length between two token vectors
+static int find_common_prefix_len(const std::vector<llama_token>& a, const std::vector<llama_token>& b) {
+    int min_len = std::min(a.size(), b.size());
+    int common_len = 0;
+    for (int i = 0; i < min_len; i++) {
+        if (a[i] == b[i]) {
+            common_len++;
+        } else {
+            break;
+        }
+    }
+    return common_len;
 }
 extern "C" {
 // Create a new llama engine instance
@@ -202,7 +216,6 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
         return JNI_FALSE;
     }
     LlamaEngineInstance* engine = it->second;
-
     // Free existing model if any
     if (engine->context) {
         llama_detach_threadpool(engine->context);
@@ -221,6 +234,9 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
         llama_model_free(engine->model);
         engine->model = nullptr;
     }
+    // Reset KV cache state
+    engine->cached_prompt_tokens.clear();
+    engine->has_cached_prompt = false;
     // Get model path
     const char* path = jstringToCString(env, modelPath);
     if (!path) {
@@ -229,49 +245,63 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
     }
     LOGI("Loading model from: %s", path);
     // Set model parameters
-    // NOTE: In llama.cpp b9128, llama_model_params no longer has n_ctx, n_batch,
-    // n_threads, n_threads_batch, or numa. Those belong to llama_context_params.
-    llama_model_params params = llama_model_default_params();
-    params.n_gpu_layers = 0;  // CPU-only (no GPU offload)
-    // Load the model
-    engine->model = llama_model_load_from_file(path, params);
+    llama_model_params mparams = llama_model_params_default();
+    mparams.n_gpu_layers = 32;  // offload all layers to GPU
+    mparams.use_mmap = true;     // use mmap for memory efficiency
+    mparams.use_mlock = false;
+    // Load model
+    engine->model = llama_model_load_from_file(path, mparams);
     if (!engine->model) {
-        LOGE("Failed to load model: %s", path);
+        LOGE("Failed to load model from: %s", path);
         releaseJString(env, modelPath, path);
         return JNI_FALSE;
     }
-    // Initialize context (thread/context params are in context_params, not model_params)
-    // Optimized for Snapdragon 778G big.LITTLE: 4x Cortex-A78 (big) + 4x Cortex-A55 (little)
-    // Use 4 threads to stay on big cores only for better performance
-    llama_context_params ctx_params = llama_context_default_params();
-    ctx_params.n_ctx = 1024;         // Reduced from 2048 - sufficient for 0.5B-7B models, supports 4-5 conversation turns
-    ctx_params.n_batch = 512;         // Keep 512 for efficient prompt prefill
-    ctx_params.n_threads = 4;         // Reduced from 8 - stay on big cores only (Cortex-A78)
-    ctx_params.n_threads_batch = 4;   // Reduced from 8 - batch processing on big cores only
-    engine->context = llama_init_from_model(engine->model, ctx_params);
+    engine->modelPath = path;
+    // Calculate dynamic n_ctx based on model parameters
+    const int n_ctx = calculate_dynamic_n_ctx(engine->model);
+    LOGI("Using dynamic n_ctx: %d", n_ctx);
+    // Create context with KV cache quantization and RoPE scaling
+    llama_context_params cparams = llama_context_params_default();
+    cparams.n_ctx = n_ctx;
+    cparams.n_batch = 512;
+    cparams.n_ubatch = 512;
+    // KV cache quantization (Q8_0 for both k and v)
+    cparams.cache_type_k = GGML_TYPE_Q8_0;
+    cparams.cache_type_v = GGML_TYPE_Q8_0;
+    // RoPE scaling for extended context (equivalent to doubling)
+    cparams.rope_freq_scale = 0.5f;
+    cparams.rope_scaling_type = LLAMA_ROPE_SCALING_LINEAR;
+    // Threadpool for inference
+    int n_threads = std::thread::hardware_concurrency() / 2;
+    if (n_threads < 1) n_threads = 1;
+    if (n_threads > 8) n_threads = 8;
+    engine->threadpool = create_big_core_threadpool(n_threads);
+    engine->threadpool_batch = create_big_core_threadpool(n_threads);
+    cparams.path_session = nullptr;
+    cparams.n_threads = n_threads;
+    cparams.n_threads_batch = n_threads;
+    if (engine->threadpool) {
+        cparams.threadpool = engine->threadpool;
+    }
+    if (engine->threadpool_batch) {
+        cparams.threadpool_batch = engine->threadpool_batch;
+    }
+    engine->context = llama_init_from_model(engine->model, cparams);
     if (!engine->context) {
-        LOGE("Failed to create context");
+        LOGE("Failed to create context for model: %s", path);
         llama_model_free(engine->model);
         engine->model = nullptr;
         releaseJString(env, modelPath, path);
         return JNI_FALSE;
     }
-
-    // Create and attach threadpool pinned to big CPU cores
-    // This ensures all llama.cpp worker threads run on Cortex-A78+ (dotprod-capable)
-    // ggml_threadpool_new() with cpumask ensures worker threads inherit affinity
-    engine->threadpool = create_big_core_threadpool(ctx_params.n_threads);
-    engine->threadpool_batch = create_big_core_threadpool(ctx_params.n_threads_batch);
+    // Attach threadpool to context
     if (engine->threadpool) {
         llama_attach_threadpool(engine->context, engine->threadpool, engine->threadpool_batch);
-        LOGI("Attached big-core threadpool to llama context");
     }
-
-    engine->modelPath = path;
     releaseJString(env, modelPath, path);
-    LOGI("Model loaded successfully: %s (n_ctx=%d, n_batch=%d, n_threads=%d, threadpool=%s)",
-         engine->modelPath.c_str(), ctx_params.n_ctx, ctx_params.n_batch, ctx_params.n_threads,
-         engine->threadpool ? "big-core" : "default");
+    LOGI("Model loaded successfully: %s", engine->modelPath.c_str());
+    LOGI("Context: n_ctx=%d, n_batch=%d, n_ubatch=%d", 
+         llama_n_ctx(engine->context), cparams.n_batch, cparams.n_ubatch);
     return JNI_TRUE;
 }
 // Unload model
@@ -300,6 +330,9 @@ Java_com_neuralmind_llama_LlamaJNI_unloadModel(JNIEnv* env, jobject thiz, jlong 
         llama_model_free(engine->model);
         engine->model = nullptr;
     }
+    // Reset KV cache state
+    engine->cached_prompt_tokens.clear();
+    engine->has_cached_prompt = false;
     engine->modelPath.clear();
     LOGI("Model unloaded");
 }
@@ -313,7 +346,7 @@ Java_com_neuralmind_llama_LlamaJNI_isModelLoaded(JNIEnv* env, jobject thiz, jlon
     }
     return (it->second->model != nullptr && it->second->context != nullptr) ? JNI_TRUE : JNI_FALSE;
 }
-// Generate text
+// Non-streaming generation
 JNIEXPORT jstring JNICALL
 Java_com_neuralmind_llama_LlamaJNI_generate(
         JNIEnv* env,
@@ -326,7 +359,7 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         jint topK,
         jfloat repeatPenalty,
         jstring stopSequence) {
-    // Get engine pointer (copy it so we can release mutex during generation)
+    // Get engine pointer
     engineMutex.lock();
     auto it = engineMap.find(engineId);
     if (it == engineMap.end()) {
@@ -338,8 +371,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         engineMutex.unlock();
         return cstringToJString(env, "Error: Model not loaded");
     }
-
-    // Mark as generating
     engine->isGenerating = true;
     engine->stopRequested = false;
     // Update parameters
@@ -362,11 +393,11 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         return cstringToJString(env, "Error: Invalid prompt");
     }
     engineMutex.unlock();
-    LOGI("Generating for prompt (len=%d), maxTokens=%d, temp=%.2f",
+    LOGI("Generation for prompt (len=%d), maxTokens=%d, temp=%.2f",
          (int)strlen(promptStr), maxTokens, temperature);
     // Get vocab from model
     const llama_vocab* vocab = llama_model_get_vocab(engine->model);
-    // Tokenize prompt using new vocab-based API
+    // Tokenize prompt
     std::vector<llama_token> promptTokens(llama_vocab_n_tokens(vocab) * 2 + 1);
     int nPromptTokens = llama_tokenize(
         vocab,
@@ -401,21 +432,15 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         engine->isGenerating = false;
         return cstringToJString(env, "Error: Failed to decode prompt");
     }
-    // Build sampler chain using new sampler API
+    // Build sampler chain
     llama_sampler_chain_params chainParams = llama_sampler_chain_default_params();
     chainParams.no_perf = true;
     struct llama_sampler* smpl = llama_sampler_chain_init(chainParams);
-    // Order matters: temp -> top_k -> top_p -> penalties -> distribution
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
-    // llama_sampler_init_top_p takes (float p, size_t min_keep)
     llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, 1));
     llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
-        topK,             // penalty_last_n
-        repeatPenalty,    // penalty_repeat
-        0.0f,             // penalty_freq
-        0.0f              // penalty_present
-    ));
+        topK, repeatPenalty, 0.0f, 0.0f));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
     // Generate tokens
     std::string generatedText;
@@ -426,7 +451,7 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     while (nGenerated < engine->maxTokens) {
         // Check stop condition
         if (engine->stopRequested) {
-            LOGI("Generation stopped by request");
+            LOGI("Generation stopped by request at token %d", nGenerated);
             break;
         }
         // Check for stop sequence
@@ -435,27 +460,27 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
             size_t stopPos = currentOutput.find(engine->stopSequence);
             if (stopPos != std::string::npos) {
                 generatedText = currentOutput.substr(0, stopPos);
-                LOGI("Generation stopped by sequence");
+                LOGI("Generation stopped by sequence at token %d", nGenerated);
                 break;
             }
         }
-        // Sample next token using sampler chain
+        // Sample next token
         newToken = llama_sampler_sample(smpl, engine->context, -1);
-        // Check for EOS using new vocab API (handles qwen/llama3/phi-3.5 etc.)
+        // Check for EOS
         if (llama_vocab_is_eog(vocab, newToken)) {
-            LOGI("Generated EOS token");
+            LOGI("Generated EOS at token %d", nGenerated);
             break;
         }
-        // Convert token to piece using new vocab API
+        // Convert token to piece
         char tokenBuf[128] = {0};
         int nWritten = llama_token_to_piece(
             vocab, newToken, tokenBuf, (int)sizeof(tokenBuf), 0, false);
         if (nWritten > 0) {
             generatedText += tokenBuf;
         }
-        // Accept token in sampler to update repetition penalty state
+        // Accept token in sampler
         llama_sampler_accept(smpl, newToken);
-        // Create batch for single new token and decode
+        // Decode single token
         llama_batch singleBatch = llama_batch_get_one(&newToken, 1);
         if (llama_decode(engine->context, singleBatch)) {
             llama_batch_free(singleBatch);
@@ -477,7 +502,7 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     return cstringToJString(env, generatedText);
 }
 // Streaming generation: generates tokens and calls onToken callback for each token
-// Returns the complete generated text at the end
+// KV cache prefix matching for efficient reuse
 JNIEXPORT jstring JNICALL
 Java_com_neuralmind_llama_LlamaJNI_generateStream(
         JNIEnv* env,
@@ -502,7 +527,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         engineMutex.unlock();
         return cstringToJString(env, "Error: Model not loaded");
     }
-
     // Mark as generating
     engine->isGenerating = true;
     engine->stopRequested = false;
@@ -547,24 +571,63 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
-    // Create batch for prompt processing
-    llama_batch batch = llama_batch_init((int)promptTokens.size(), 0, 1);
-    batch.n_tokens = nPromptTokens;
-    for (int i = 0; i < nPromptTokens; i++) {
-        batch.token[i] = promptTokens[i];
-        batch.pos[i] = i;
-        batch.n_seq_id[i] = 1;
-        batch.seq_id[i][0] = 0;
-        batch.logits[i] = (i == nPromptTokens - 1) ? 1 : 0;
-    }
-    // Clear KV cache before decode to ensure fresh inference
-    llama_memory_clear(llama_get_memory(engine->context), true);
-    // Decode prompt
-    if (llama_decode(engine->context, batch)) {
+    // KV cache prefix matching logic
+    int decode_start_pos = 0;
+    if (engine->has_cached_prompt && !engine->cached_prompt_tokens.empty()) {
+        int common_prefix_len = find_common_prefix_len(engine->cached_prompt_tokens, promptTokens);
+        LOGI("KV cache prefix match: %d/%d tokens reused (cached=%d, new=%d)",
+             common_prefix_len, nPromptTokens, 
+             (int)engine->cached_prompt_tokens.size(), nPromptTokens);
+        if (common_prefix_len > 0) {
+            // We can reuse KV cache from cached_prompt_tokens[0..common_prefix_len-1]
+            // We need to decode promptTokens[common_prefix_len..nPromptTokens-1]
+            decode_start_pos = common_prefix_len;
+            // Find the position where the cached context ends
+            llama_batch cache_batch = llama_batch_init(nPromptTokens - decode_start_pos, 0, 1);
+            int cache_batch_size = nPromptTokens - decode_start_pos;
+            cache_batch.n_tokens = cache_batch_size;
+            for (int i = 0; i < cache_batch_size; i++) {
+                cache_batch.token[i] = promptTokens[decode_start_pos + i];
+                cache_batch.pos[i] = decode_start_pos + i;
+                cache_batch.n_seq_id[i] = 1;
+                cache_batch.seq_id[i][0] = 0;
+                cache_batch.logits[i] = (i == cache_batch_size - 1) ? 1 : 0;
+            }
+            // Decode from common_prefix_len onwards (reuse existing KV cache)
+            if (llama_decode(engine->context, cache_batch)) {
+                llama_batch_free(cache_batch);
+                engine->isGenerating = false;
+                return cstringToJString(env, "Error: Failed to decode cached prompt");
+            }
+            llama_batch_free(cache_batch);
+        } else {
+            // No common prefix, clear cache and decode from beginning
+            LOGI("KV cache prefix mismatch, clearing cache");
+            llama_memory_clear(llama_get_memory(engine->context), true);
+        }
+    } else {
+        // No cached prompt, decode from beginning
+        llama_batch batch = llama_batch_init(nPromptTokens, 0, 1);
+        batch.n_tokens = nPromptTokens;
+        for (int i = 0; i < nPromptTokens; i++) {
+            batch.token[i] = promptTokens[i];
+            batch.pos[i] = i;
+            batch.n_seq_id[i] = 1;
+            batch.seq_id[i][0] = 0;
+            batch.logits[i] = (i == nPromptTokens - 1) ? 1 : 0;
+        }
+        // Clear KV cache before decode to ensure fresh inference
+        llama_memory_clear(llama_get_memory(engine->context), true);
+        if (llama_decode(engine->context, batch)) {
+            llama_batch_free(batch);
+            engine->isGenerating = false;
+            return cstringToJString(env, "Error: Failed to decode prompt");
+        }
         llama_batch_free(batch);
-        engine->isGenerating = false;
-        return cstringToJString(env, "Error: Failed to decode prompt");
     }
+    // Update cached prompt tokens for future reuse
+    engine->cached_prompt_tokens = promptTokens;
+    engine->has_cached_prompt = true;
     // Build sampler chain
     llama_sampler_chain_params chainParams = llama_sampler_chain_default_params();
     chainParams.no_perf = true;
@@ -638,10 +701,196 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     }
     // Cleanup
     llama_sampler_free(smpl);
-    llama_batch_free(batch);
     engine->isGenerating = false;
     LOGI("Streaming: generated %d tokens total", nGenerated);
     return cstringToJString(env, generatedText);
+}
+// Clear prompt cache - clears KV cache and resets cached tokens
+JNIEXPORT void JNICALL
+Java_com_neuralmind_llama_LlamaJNI_clearPromptCache(JNIEnv* env, jobject thiz, jlong engineId) {
+    std::lock_guard<std::mutex> lock(engineMutex);
+    auto it = engineMap.find(engineId);
+    if (it == engineMap.end()) {
+        return;
+    }
+    LlamaEngineInstance* engine = it->second;
+    if (engine->context) {
+        llama_memory_clear(llama_get_memory(engine->context), true);
+    }
+    engine->cached_prompt_tokens.clear();
+    engine->has_cached_prompt = false;
+    LOGI("Prompt cache cleared");
+}
+// Save KV state to file
+JNIEXPORT jboolean JNICALL
+Java_com_neuralmind_llama_LlamaJNI_saveKvState(JNIEnv* env, jobject thiz, jlong engineId, jstring filePath) {
+    std::lock_guard<std::mutex> lock(engineMutex);
+    auto it = engineMap.find(engineId);
+    if (it == engineMap.end()) {
+        LOGE("Engine not found for saveKvState: %ld", (long)engineId);
+        return JNI_FALSE;
+    }
+    LlamaEngineInstance* engine = it->second;
+    if (!engine->context) {
+        LOGE("Context not loaded for saveKvState");
+        return JNI_FALSE;
+    }
+    const char* path = jstringToCString(env, filePath);
+    if (!path) {
+        LOGE("Invalid file path for saveKvState");
+        return JNI_FALSE;
+    }
+    // Get state size
+    size_t stateSize = llama_state_get_size(engine->context);
+    if (stateSize == 0) {
+        LOGE("Failed to get state size");
+        releaseJString(env, filePath, path);
+        return JNI_FALSE;
+    }
+    // Allocate buffer and get state data
+    std::vector<char> stateBuf(stateSize);
+    size_t written = llama_state_get_data(engine->context, stateBuf.data(), stateBuf.size());
+    if (written == 0) {
+        LOGE("Failed to get state data");
+        releaseJString(env, filePath, path);
+        return JNI_FALSE;
+    }
+    // Write KV state to file
+    std::ofstream outFile(path, std::ios::binary);
+    if (!outFile.is_open()) {
+        LOGE("Failed to open file for writing: %s", path);
+        releaseJString(env, filePath, path);
+        return JNI_FALSE;
+    }
+    outFile.write(stateBuf.data(), written);
+    outFile.close();
+    // Save cached prompt tokens to companion file
+    std::string tokensPath = std::string(path) + ".tokens";
+    std::ofstream tokensFile(tokensPath, std::ios::binary);
+    if (tokensFile.is_open()) {
+        uint32_t tokenCount = (uint32_t)engine->cached_prompt_tokens.size();
+        tokensFile.write(reinterpret_cast<const char*>(&tokenCount), sizeof(tokenCount));
+        if (tokenCount > 0) {
+            tokensFile.write(reinterpret_cast<const char*>(engine->cached_prompt_tokens.data()),
+                           tokenCount * sizeof(llama_token));
+        }
+        tokensFile.close();
+    }
+    releaseJString(env, filePath, path);
+    LOGI("KV state saved: %zu bytes to %s", written, path);
+    return JNI_TRUE;
+}
+// Load KV state from file
+JNIEXPORT jboolean JNICALL
+Java_com_neuralmind_llama_LlamaJNI_loadKvState(JNIEnv* env, jobject thiz, jlong engineId, jstring filePath) {
+    std::lock_guard<std::mutex> lock(engineMutex);
+    auto it = engineMap.find(engineId);
+    if (it == engineMap.end()) {
+        LOGE("Engine not found for loadKvState: %ld", (long)engineId);
+        return JNI_FALSE;
+    }
+    LlamaEngineInstance* engine = it->second;
+    if (!engine->context) {
+        LOGE("Context not loaded for loadKvState");
+        return JNI_FALSE;
+    }
+    const char* path = jstringToCString(env, filePath);
+    if (!path) {
+        LOGE("Invalid file path for loadKvState");
+        return JNI_FALSE;
+    }
+    // Read KV state from file
+    std::ifstream inFile(path, std::ios::binary);
+    if (!inFile.is_open()) {
+        LOGE("Failed to open file for reading: %s", path);
+        releaseJString(env, filePath, path);
+        return JNI_FALSE;
+    }
+    // Get file size
+    inFile.seekg(0, std::ios::end);
+    size_t fileSize = inFile.tellg();
+    inFile.seekg(0, std::ios::beg);
+    // Read file content
+    std::vector<char> stateBuf(fileSize);
+    inFile.read(stateBuf.data(), fileSize);
+    inFile.close();
+    // Load state into context
+    size_t loaded = llama_state_set_data(engine->context, stateBuf.data(), fileSize);
+    if (loaded == 0) {
+        LOGE("Failed to load state data");
+        releaseJString(env, filePath, path);
+        return JNI_FALSE;
+    }
+    // Load cached prompt tokens from companion file
+    std::string tokensPath = std::string(path) + ".tokens";
+    std::ifstream tokensFile(tokensPath, std::ios::binary);
+    if (tokensFile.is_open()) {
+        uint32_t tokenCount = 0;
+        tokensFile.read(reinterpret_cast<char*>(&tokenCount), sizeof(tokenCount));
+        if (tokenCount > 0) {
+            engine->cached_prompt_tokens.resize(tokenCount);
+            tokensFile.read(reinterpret_cast<char*>(engine->cached_prompt_tokens.data()),
+                          tokenCount * sizeof(llama_token));
+        }
+        tokensFile.close();
+        engine->has_cached_prompt = !engine->cached_prompt_tokens.empty();
+    }
+    releaseJString(env, filePath, path);
+    LOGI("KV state loaded: %zu bytes from %s", loaded, path);
+    return JNI_TRUE;
+}
+// Extract fingerprint (embedding vector) from given text
+JNIEXPORT jfloatArray JNICALL
+Java_com_neuralmind_llama_LlamaJNI_extractFingerprint(JNIEnv* env, jobject thiz, jlong engineId, jstring text) {
+    std::lock_guard<std::mutex> lock(engineMutex);
+    auto it = engineMap.find(engineId);
+    if (it == engineMap.end() || !it->second->context || !it->second->model) {
+        return nullptr;
+    }
+    LlamaEngineInstance* engine = it->second;
+    const char* textStr = jstringToCString(env, text);
+    if (!textStr) {
+        return nullptr;
+    }
+    const llama_vocab* vocab = llama_model_get_vocab(engine->model);
+    const int n_embd = llama_model_n_embd(engine->model);
+    // Tokenize text
+    std::vector<llama_token> tokens(llama_vocab_n_tokens(vocab) * 2 + 1);
+    int nTokens = llama_tokenize(vocab, textStr, (int)strlen(textStr),
+                                  tokens.data(), (int)tokens.size(), true, false);
+    releaseJString(env, text, textStr);
+    if (nTokens < 0) {
+        return nullptr;
+    }
+    tokens.resize(nTokens);
+    // Create batch for encoding
+    llama_batch batch = llama_batch_init(nTokens, 0, 1);
+    batch.n_tokens = nTokens;
+    for (int i = 0; i < nTokens; i++) {
+        batch.token[i] = tokens[i];
+        batch.pos[i] = i;
+        batch.n_seq_id[i] = 1;
+        batch.seq_id[i][0] = 0;
+        batch.logits[i] = 0;
+    }
+    // Decode to get embeddings
+    if (llama_decode(engine->context, batch)) {
+        llama_batch_free(batch);
+        return nullptr;
+    }
+    llama_batch_free(batch);
+    // Get embeddings (average pooling over all tokens)
+    const float* embeddings = llama_get_embeddings(engine->context);
+    if (!embeddings) {
+        return nullptr;
+    }
+    // Copy embeddings to Java float array
+    jfloatArray result = env->NewFloatArray(n_embd);
+    if (result) {
+        env->SetFloatArrayRegion(result, 0, n_embd, embeddings);
+    }
+    LOGI("Extracted fingerprint: dim=%d", n_embd);
+    return result;
 }
 // Stop generation
 JNIEXPORT void JNICALL
@@ -676,12 +925,18 @@ Java_com_neuralmind_llama_LlamaJNI_getModelInfo(JNIEnv* env, jobject thiz, jlong
         return cstringToJString(env, "No model loaded");
     }
     const llama_vocab* vocab = llama_model_get_vocab(engine->model);
+    int64_t n_params = llama_model_n_params(engine->model);
     std::string info = "Model: " + engine->modelPath + "\n";
+    info += "Parameters: " + std::to_string(n_params) + " (" + 
+            std::to_string(n_params / 1000000000) + "." + 
+            std::to_string((n_params / 10000000) % 100) + "B)\n";
     info += "Vocab size: " + std::to_string(llama_vocab_n_tokens(vocab)) + "\n";
     info += "Training context size: " + std::to_string(llama_model_n_ctx_train(engine->model)) + "\n";
     info += "Embedding size: " + std::to_string(llama_model_n_embd(engine->model)) + "\n";
     info += "Layers: " + std::to_string(llama_model_n_layer(engine->model)) + "\n";
     info += "Context size: " + std::to_string(llama_n_ctx(engine->context)) + "\n";
+    info += "KV cache prefix: " + std::string(engine->has_cached_prompt ? 
+            std::to_string(engine->cached_prompt_tokens.size()) + " tokens" : "none") + "\n";
     info += "Threadpool: " + std::string(engine->threadpool ? "big-core" : "default") + "\n";
     info += "Status: ";
     info += (engine->context ? "Loaded" : "Not loaded");
