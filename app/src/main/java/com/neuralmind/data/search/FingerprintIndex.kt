@@ -164,7 +164,7 @@ class FingerprintIndex @Inject constructor(
                         keywords = entity.keywords
                     )
                 } catch (e: Exception) {
-                    Logger.w(TAG, "Failed to compare fingerprint id=${entity.id}", e)
+                    Logger.w(TAG, "Failed to compare fingerprint id=${entity.id}: ${e.message}")
                     null
                 }
             }
@@ -214,7 +214,7 @@ class FingerprintIndex @Inject constructor(
                         )
                     }
                 } catch (e: Exception) {
-                    Logger.w(TAG, "Failed to fetch memory id=${fpResult.contentId}", e)
+                    Logger.w(TAG, "Failed to fetch memory id=${fpResult.contentId}: ${e.message}")
                     null
                 }
             }
