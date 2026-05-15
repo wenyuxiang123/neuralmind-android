@@ -693,13 +693,29 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
                         tail.find("im_end") != std::string::npos ||
                         tail.find("im_start") != std::string::npos ||
                         tail.find("imlend") != std::string::npos ||
-                        tail.find("iml_end") != std::string::npos) {
+                        tail.find("iml_end") != std::string::npos ||
+                        tail.find("start_header_id") != std::string::npos ||
+                        tail.find("end_header_id") != std::string::npos ||
+                        tail.find("eot_id") != std::string::npos ||
+                        tail.find("end_of_turn") != std::string::npos ||
+                        tail.find("start_of_turn") != std::string::npos) {
                         foundChatML = true;
                     }
                     if (foundChatML) {
                         LOGI("Streaming: stopping on ChatML fragment at token %d", nGenerated);
                         // Trim generatedText: find the last '<' and cut everything from there
+                        // Find the start of the special token fragment
                         size_t cutPos = generatedText.rfind('<');
+                        if (cutPos == std::string::npos) {
+                            // Also try finding start_header_id without <
+                            cutPos = generatedText.rfind("start_header_id");
+                            if (cutPos == std::string::npos) {
+                                cutPos = generatedText.rfind("end_header_id");
+                            }
+                            if (cutPos == std::string::npos) {
+                                cutPos = generatedText.rfind("eot_id");
+                            }
+                        }
                         if (cutPos != std::string::npos && cutPos > 0) {
                             generatedText = generatedText.substr(0, cutPos);
                         } else if (cutPos == 0) {
@@ -750,7 +766,10 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             if (i + 2 < generatedText.size() && generatedText[i] == '<' &&
                 ((generatedText[i+1] == 'i' && generatedText[i+2] == 'm') ||  // <im
                  (generatedText[i+1] == '|' && generatedText[i+2] == 'i') ||  // <|i
-                 (generatedText[i+1] == '/' && generatedText[i+2] == 'i'))) { // </i
+                 (generatedText[i+1] == '/' && generatedText[i+2] == 'i') ||  // </i
+                 (generatedText[i+1] == 's' && generatedText[i+2] == 't') ||  // <st (start_of_turn, start_header_id)
+                 (generatedText[i+1] == 'e' && generatedText[i+2] == 'n') ||  // <en (end_of_turn, end_header_id)
+                 (generatedText[i+1] == '|' && generatedText[i+2] == 'e'))) { // <|e (<|end|>, <|eot_id|>)
                 skip = true;
             }
             if (skip) {
