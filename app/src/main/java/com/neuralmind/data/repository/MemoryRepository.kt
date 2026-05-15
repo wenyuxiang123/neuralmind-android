@@ -164,8 +164,51 @@ class MemoryRepository @Inject constructor(
     }
     
     /**
+     * Check if the input is a request/intent rather than a preference statement.
+     * Requests like "我想写文章" should NOT be stored as preferences.
+     */
+    private fun isRequestIntent(input: String, pattern: String): Boolean {
+        // Check if pattern is followed by action verbs + content
+        val actionVerbs = listOf("写", "做", "要", "看", "去", "吃", "买", "玩", "听", "学", "了解", "知道", "搜索", "查询", "获取", "下载", "打开", "启动", "运行")
+        val patternIndex = input.indexOf(pattern, ignoreCase = true)
+        if (patternIndex < 0) return false
+        
+        val afterPattern = input.substring(patternIndex + pattern.length)
+        // If followed by action verb and substantial content (>10 chars), likely a request
+        if (afterPattern.isNotEmpty()) {
+            val trimmed = afterPattern.trim()
+            if (trimmed.isNotEmpty() && trimmed.length > 3) {
+                // Check if starts with an action verb
+                val startsWithAction = actionVerbs.any { trimmed.startsWith(it) }
+                if (startsWithAction && trimmed.length > 10) {
+                    return true
+                }
+                // Also check for common request patterns like "我想XXX一下", "我想XXX一点"
+                if (trimmed.contains(Regex("(一下|一点|一下的|帮我|给我|你能|你可以)")) && trimmed.length > 10) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+    
+    /**
+     * Check if extracted content is too short (low information density).
+     */
+    private fun isLowInfoDensity(content: String): Boolean {
+        // Filter out very short content (< 3 chars after trim)
+        val trimmed = content.trim()
+        if (trimmed.length < 3) {
+            Logger.d(Logger.Tags.REPO, "isLowInfoDensity: rejecting short content '${trimmed}'")
+            return true
+        }
+        return false
+    }
+    
+    /**
      * Automatically save user information from input as memories.
      * Extracts structured information based on memory layer context.
+     * FIX: Better filtering to avoid storing requests as preferences.
      */
     private suspend fun saveUserInfoFromInput(input: String, layer: MemoryLayer) {
         try {
@@ -191,12 +234,39 @@ class MemoryRepository @Inject constructor(
                 }
                 MemoryLayer.L6_PREFERENCE -> {
                     // Save preference-related content
-                    val prefPatterns = listOf("我喜欢", "我偏好", "我想", "我想要")
+                    // FIX: Only save as preference if it's NOT a request intent
+                    val prefPatterns = listOf("我喜欢", "我偏好")
                     for (pattern in prefPatterns) {
                         if (input.contains(pattern)) {
+                            // Skip if it's a request like "我想写文章"
+                            if (pattern == "我想" && isRequestIntent(input, pattern)) {
+                                Logger.d(Logger.Tags.REPO, "saveUserInfoFromInput: skipping request intent for '我想'")
+                                continue
+                            }
                             val start = input.indexOf(pattern) + pattern.length
                             val content = input.substring(start).take(50).trim()
-                            if (content.isNotEmpty()) {
+                            // Only save if meaningful content
+                            if (content.isNotEmpty() && !isLowInfoDensity(content)) {
+                                addMemory(Memory(
+                                    layer = layer,
+                                    content = "用户偏好: $content",
+                                    category = "偏好",
+                                    importance = 7
+                                ))
+                            }
+                            break
+                        }
+                    }
+                    // Also check "我想要" patterns
+                    val wantPatterns = listOf("我想要", "我偏向")
+                    for (pattern in wantPatterns) {
+                        if (input.contains(pattern)) {
+                            if (isRequestIntent(input, pattern)) {
+                                continue
+                            }
+                            val start = input.indexOf(pattern) + pattern.length
+                            val content = input.substring(start).take(50).trim()
+                            if (content.isNotEmpty() && !isLowInfoDensity(content)) {
                                 addMemory(Memory(
                                     layer = layer,
                                     content = "用户偏好: $content",
@@ -214,8 +284,8 @@ class MemoryRepository @Inject constructor(
                     for (pattern in learnPatterns) {
                         if (input.contains(pattern)) {
                             // Extract the content after the keyword
-                            val cleanInput = input.replace(pattern, "").trim()
-                            if (cleanInput.isNotEmpty()) {
+                            val cleanInput = input.replace(pattern, "", ignoreCase = true).trim()
+                            if (cleanInput.isNotEmpty() && !isLowInfoDensity(cleanInput)) {
                                 addMemory(Memory(
                                     layer = layer,
                                     content = cleanInput.take(100),
@@ -232,8 +302,8 @@ class MemoryRepository @Inject constructor(
                     val habitPatterns = listOf("习惯", "总是", "通常")
                     for (pattern in habitPatterns) {
                         if (input.contains(pattern)) {
-                            val cleanInput = input.replace(pattern, "").trim()
-                            if (cleanInput.isNotEmpty()) {
+                            val cleanInput = input.replace(pattern, "", ignoreCase = true).trim()
+                            if (cleanInput.isNotEmpty() && !isLowInfoDensity(cleanInput)) {
                                 addMemory(Memory(
                                     layer = layer,
                                     content = "用户习惯: $cleanInput",
@@ -250,8 +320,8 @@ class MemoryRepository @Inject constructor(
                     val goalPatterns = listOf("目标", "梦想", "想要", "我希望")
                     for (pattern in goalPatterns) {
                         if (input.contains(pattern)) {
-                            val cleanInput = input.replace(pattern, "").trim()
-                            if (cleanInput.isNotEmpty()) {
+                            val cleanInput = input.replace(pattern, "", ignoreCase = true).trim()
+                            if (cleanInput.isNotEmpty() && !isLowInfoDensity(cleanInput)) {
                                 addMemory(Memory(
                                     layer = layer,
                                     content = "用户目标: $cleanInput",
@@ -266,12 +336,15 @@ class MemoryRepository @Inject constructor(
                 else -> {
                     // For other layers, save general context
                     if (input.length in 10..200) {
-                        addMemory(Memory(
-                            layer = layer,
-                            content = input.take(100),
-                            category = "上下文",
-                            importance = 5
-                        ))
+                        val trimmed = input.trim()
+                        if (!isLowInfoDensity(trimmed)) {
+                            addMemory(Memory(
+                                layer = layer,
+                                content = trimmed.take(100),
+                                category = "上下文",
+                                importance = 5
+                            ))
+                        }
                     }
                 }
             }
