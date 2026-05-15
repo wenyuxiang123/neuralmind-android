@@ -377,10 +377,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     }
     const char* promptStr = jstringToCString(env, prompt);
     if (!promptStr) {
-        // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
-    engine->isGenerating = false;
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
         engineMutex.unlock();
         return cstringToJString(env, "Error: Invalid prompt");
     }
@@ -402,10 +398,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     );
     releaseJString(env, prompt, promptStr);
     if (nPromptTokens < 0) {
-        // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
-    engine->isGenerating = false;
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
@@ -424,10 +416,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     // Decode prompt
     if (llama_decode(engine->context, batch)) {
         llama_batch_free(batch);
-        // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
-    engine->isGenerating = false;
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
         return cstringToJString(env, "Error: Failed to decode prompt");
     }
     // Build sampler chain
@@ -494,11 +482,9 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     }
     // Cleanup
     llama_sampler_free(smpl);
-    llama_batch_free(batch);
     // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
     engine->isGenerating = false;
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
+    llama_batch_free(batch);
     LOGI("Generated %d tokens", nGenerated);
     return cstringToJString(env, generatedText);
 }
@@ -546,10 +532,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     }
     const char* promptStr = jstringToCString(env, prompt);
     if (!promptStr) {
-        // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
-    engine->isGenerating = false;
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
         engineMutex.unlock();
         return cstringToJString(env, "Error: Invalid prompt");
     }
@@ -571,10 +553,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     );
     releaseJString(env, prompt, promptStr);
     if (nPromptTokens < 0) {
-        // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
-    engine->isGenerating = false;
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
@@ -603,10 +581,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             // Decode from common_prefix_len onwards (reuse existing KV cache)
             if (llama_decode(engine->context, cache_batch)) {
                 llama_batch_free(cache_batch);
-                // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
-    engine->isGenerating = false;
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
                 return cstringToJString(env, "Error: Failed to decode cached prompt");
             }
             llama_batch_free(cache_batch);
@@ -630,10 +604,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         llama_memory_clear(llama_get_memory(engine->context), true);
         if (llama_decode(engine->context, batch)) {
             llama_batch_free(batch);
-            // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
-    engine->isGenerating = false;
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
             return cstringToJString(env, "Error: Failed to decode prompt");
         }
         llama_batch_free(batch);
@@ -698,6 +668,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             }
         }
         // Accept token in sampler
+        generatedTokens.push_back(newToken);
         llama_sampler_accept(smpl, newToken);
         // Decode single token
         llama_batch singleBatch = llama_batch_get_one(&newToken, 1);
@@ -718,7 +689,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
     engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
     engine->isGenerating = false;
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
     LOGI("Streaming: generated %d tokens total", nGenerated);
     return cstringToJString(env, generatedText);
 }
