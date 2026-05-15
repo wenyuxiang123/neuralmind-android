@@ -1,4 +1,5 @@
 package com.neuralmind.ui.viewmodel
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuralmind.core.Logger
@@ -16,6 +17,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
@@ -38,17 +40,25 @@ class ChatViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     
     private val _currentConversation = MutableStateFlow<Conversation?>(null)
-    val currentConversation: StateFlow<Conversation?> = _currentConversation.asStateFlow()
+    val currentConversation: StateFlow<Conversation?> = _currentConversation
     
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
-    val messages: StateFlow<List<Message>> = _messages.asStateFlow()
+    val messages: StateFlow<List<Message>> = _messages
     
     private val _streamingMessage = MutableStateFlow<Message?>(null)
-    val streamingMessage: StateFlow<Message?> = _streamingMessage.asStateFlow()
+    val streamingMessage: StateFlow<Message?> = _streamingMessage
     
     // Error event channel for UI to collect
     private val _errorEvent = Channel<String>(Channel.BUFFERED)
     val errorEvent = _errorEvent.receiveAsFlow()
+    
+    // Context window size (n_ctx from llama.cpp, default 1024 for backward compatibility)
+    private val defaultNctx = 1024
+    // Reserve tokens for generation output
+    private val reservedOutputTokens = 128
+    // Simple token estimation: Chinese ~1.5 tokens/char, English ~1 token/word
+    private val tokenBudget: Int
+        get() = defaultNctx - reservedOutputTokens
     
     fun updateInputText(text: String) {
         Logger.d(Logger.Tags.VM, "updateInputText(text=${text.take(20)}...)")
@@ -111,7 +121,8 @@ class ChatViewModel @Inject constructor(
                 
                 _uiState.update { it.copy(isLoading = false, isStreaming = true) }
                 
-                val contextMessages = _messages.value.takeLast(10)
+                // Get context messages WITHOUT the current user message (we'll add it separately)
+                val contextMessages = _messages.value.dropLast(1).takeLast(10)
                 generateAIResponse(conversation, content, contextMessages)
             } catch (e: Exception) {
                 Logger.e(Logger.Tags.VM, "sendMessage failed", e)
@@ -146,10 +157,10 @@ class ChatViewModel @Inject constructor(
             true
         } else {
             // Try currentModel first, fallback to conversation's model
-            val modelId = modelRepository.currentModel.value?.id ?: modelId
-            if (modelId.isNotEmpty()) {
-                Logger.d(Logger.Tags.VM, "generateAIResponse: loading model $modelId")
-                llamaEngine.loadModel(modelId)
+            val targetModelId = modelRepository.currentModel.value?.id ?: modelId
+            if (targetModelId.isNotEmpty()) {
+                Logger.d(Logger.Tags.VM, "generateAIResponse: loading model $targetModelId")
+                llamaEngine.loadModel(targetModelId)
             } else {
                 Logger.w(Logger.Tags.VM, "generateAIResponse: no model available")
                 false
@@ -207,8 +218,23 @@ class ChatViewModel @Inject constructor(
     }
     
     /**
+     * Estimate token count from text.
+     * Chinese: ~1.5 tokens per character
+     * English: ~1 token per word (space-separated)
+     */
+    private fun estimateTokenCount(text: String): Int {
+        if (text.isEmpty()) return 0
+        val chineseChars = text.count { it.code in 0x4E00..0x9FFF }
+        val englishWords = text.split(Regex("\\s+")).filter { it.isNotEmpty() }.size
+        val otherChars = text.length - chineseChars - englishWords
+        // Rough estimate: Chinese chars * 1.5, English words * 1.0, other * 1.0
+        return ((chineseChars * 1.5) + englishWords + otherChars).toInt()
+    }
+    
+    /**
      * Build prompt using ChatML format for LLM inference, with memory context and skill prompts injection.
-     * Optimized for small models (0.5B): reduced memory injection to 3 (from 10) to minimize prefill time.
+     * With token budget control to prevent context overflow.
+     * FIX: contextMessages does NOT include the current user message, we add it separately.
      */
     private suspend fun buildPrompt(userInput: String, contextMessages: List<Message>): String {
         Logger.d(Logger.Tags.VM, "buildPrompt: userInput=${userInput.take(30)}...")
@@ -230,7 +256,6 @@ class ChatViewModel @Inject constructor(
             sb.append("\n\n【关于用户的记忆】\n")
             
             // Optimized for small models: limit to 3 most important memories only
-            // This significantly reduces prompt token count and prefill time for 0.5B models
             val relevantMemories = activeMemories
                 .sortedByDescending { it.importance }
                 .take(3)
@@ -242,8 +267,28 @@ class ChatViewModel @Inject constructor(
         
         sb.append("<|im_end|>\n")
         
-        // Context messages (limited to last 10 to save context)
-        for (msg in contextMessages) {
+        // Calculate token budget for context messages
+        val systemPromptTokens = estimateTokenCount(sb.toString())
+        val userInputTokens = estimateTokenCount(userInput)
+        val remainingBudget = tokenBudget - systemPromptTokens - userInputTokens
+        
+        Logger.d(Logger.Tags.VM, "buildPrompt: token budget=${tokenBudget}, system=${systemPromptTokens}, userInput=${userInputTokens}, remaining=${remainingBudget}")
+        
+        // Context messages with token budget control
+        // Limit to last N messages that fit within the remaining budget
+        var contextTokensUsed = 0
+        val limitedContextMessages = contextMessages.takeLastWhile { msg ->
+            val msgTokens = estimateTokenCount(msg.content)
+            if (contextTokensUsed + msgTokens <= remainingBudget) {
+                contextTokensUsed += msgTokens
+                true
+            } else {
+                Logger.d(Logger.Tags.VM, "buildPrompt: dropping message (${msgTokens} tokens) due to budget")
+                false
+            }
+        }
+        
+        for (msg in limitedContextMessages) {
             val role = when (msg.role) {
                 MessageRole.USER -> "user"
                 MessageRole.ASSISTANT -> "assistant"
@@ -254,7 +299,7 @@ class ChatViewModel @Inject constructor(
             sb.append("<|im_end|>\n")
         }
         
-        // Current user input
+        // Current user input (added separately, not from contextMessages)
         sb.append("<|im_start|>user\n")
         sb.append(userInput)
         sb.append("<|im_end|>\n")
@@ -262,8 +307,16 @@ class ChatViewModel @Inject constructor(
         // Assistant prefix for generation
         sb.append("<|im_start|>assistant\n")
         
-        Logger.d(Logger.Tags.VM, "buildPrompt: completed, ${sb.length} chars")
+        Logger.d(Logger.Tags.VM, "buildPrompt: completed, ${sb.length} chars, ~${estimateTokenCount(sb.toString())} tokens")
         return sb.toString()
+    }
+    
+    /**
+     * Clear prompt cache when switching conversations or resetting context.
+     */
+    fun clearPromptCache() {
+        Logger.d(Logger.Tags.VM, "clearPromptCache()")
+        llamaEngine.clearPromptCache()
     }
     
     fun selectModel(model: AIModel) {
@@ -272,6 +325,8 @@ class ChatViewModel @Inject constructor(
             try {
                 modelRepository.switchModel(model.id)
                 llamaEngine.loadModel(model.id)
+                // Clear prompt cache when switching models (context is incompatible)
+                llamaEngine.clearPromptCache()
                 _currentConversation.value = _currentConversation.value?.copy(model = model.id)
                 Logger.i(Logger.Tags.VM, "selectModel success: ${model.name}")
             } catch (e: Exception) {
@@ -285,6 +340,7 @@ class ChatViewModel @Inject constructor(
         _uiState.update { it.copy(error = null) }
     }
 }
+
 data class ChatUiState(
     val isLoading: Boolean = false,
     val isStreaming: Boolean = false,
