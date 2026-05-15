@@ -692,11 +692,8 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
                     if (tail.find("<im") != std::string::npos ||
                         tail.find("im_end") != std::string::npos ||
                         tail.find("im_start") != std::string::npos ||
-                        tail.find("<|") != std::string::npos ||
-                        tail.find("|>") != std::string::npos ||
                         tail.find("imlend") != std::string::npos ||
-                        tail.find("iml_end") != std::string::npos ||
-                        tail.find("/im") != std::string::npos) {
+                        tail.find("iml_end") != std::string::npos) {
                         foundChatML = true;
                     }
                     if (foundChatML) {
@@ -743,25 +740,31 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     engine->isGenerating = false;
     LOGI("Streaming: generated %d tokens total", nGenerated);
 
-    // Final cleanup: remove any remaining <...> tag fragments from generatedText
+    // Final cleanup: remove ChatML-specific tag fragments only
     {
+        // Remove patterns like <im...>, <|im...|>, </im...> etc.
         std::string cleaned;
-        bool inTag = false;
-        for (size_t i = 0; i < generatedText.size(); i++) {
-            if (generatedText[i] == '<') {
-                inTag = true;
-                continue;
+        bool skip = false;
+        for (size_t i = 0; i < generatedText.size(); ) {
+            // Check for ChatML tag start patterns
+            if (i + 2 < generatedText.size() && generatedText[i] == '<' &&
+                ((generatedText[i+1] == 'i' && generatedText[i+2] == 'm') ||  // <im
+                 (generatedText[i+1] == '|' && generatedText[i+2] == 'i') ||  // <|i
+                 (generatedText[i+1] == '/' && generatedText[i+2] == 'i'))) { // </i
+                skip = true;
             }
-            if (inTag) {
-                if (generatedText[i] == '>') {
-                    inTag = false;
+            if (skip) {
+                if (generatedText[i] == '>' || generatedText[i] == '|') {
+                    skip = false;
                 }
+                i++;
                 continue;
             }
             cleaned += generatedText[i];
+            i++;
         }
         generatedText = cleaned;
-        // Also remove trailing whitespace
+        // Remove trailing whitespace
         while (!generatedText.empty() && (generatedText.back() == ' ' || generatedText.back() == '\n')) {
             generatedText.pop_back();
         }
