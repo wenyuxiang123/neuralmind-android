@@ -1,8 +1,5 @@
 package com.neuralmind.llama
 
-import android.content.Context
-import java.io.File
-
 class LlamaJNI {
     companion object {
         init {
@@ -60,6 +57,19 @@ class LlamaJNI {
 
         @JvmStatic
         external fun getSupportedModels(): Array<String>
+
+        // New methods for KV cache management
+        @JvmStatic
+        external fun clearPromptCache(engineId: Long)
+
+        @JvmStatic
+        external fun saveKvState(engineId: Long, filePath: String): Boolean
+
+        @JvmStatic
+        external fun loadKvState(engineId: Long, filePath: String): Boolean
+
+        @JvmStatic
+        external fun extractFingerprint(engineId: Long, text: String): FloatArray?
     }
 
     // Instance method - called by C++ JNI for streaming token callback
