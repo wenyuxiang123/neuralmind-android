@@ -394,7 +394,7 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         promptTokens.data(),
         (int)promptTokens.size(),
         true,   // add_bos
-        false   // parse_special
+        true    // parse_special
     );
     releaseJString(env, prompt, promptStr);
     if (nPromptTokens < 0) {
@@ -485,6 +485,12 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
     engine->isGenerating = false;
     llama_batch_free(batch);
+    // Update cached prompt tokens for KV prefix matching in future calls
+    engine->cached_prompt_tokens = promptTokens;
+    // Note: generated tokens would need to be tracked separately for full KV cache reuse
+    // For now, we save the prompt tokens which enables prefix matching on the next call
+    engine->has_cached_prompt = true;
+    
     LOGI("Generated %d tokens", nGenerated);
     return cstringToJString(env, generatedText);
 }
