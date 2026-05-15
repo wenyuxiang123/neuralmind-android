@@ -245,7 +245,7 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
     }
     LOGI("Loading model from: %s", path);
     // Set model parameters
-    llama_model_params mparams = llama_model_params_default();
+    llama_model_params mparams = llama_model_default_params();
     mparams.n_gpu_layers = 32;  // offload all layers to GPU
     mparams.use_mmap = true;     // use mmap for memory efficiency
     mparams.use_mlock = false;
@@ -261,31 +261,20 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
     const int n_ctx = calculate_dynamic_n_ctx(engine->model);
     LOGI("Using dynamic n_ctx: %d", n_ctx);
     // Create context with KV cache quantization and RoPE scaling
-    llama_context_params cparams = llama_context_params_default();
+    llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = n_ctx;
     cparams.n_batch = 512;
     cparams.n_ubatch = 512;
-    // KV cache quantization (Q8_0 for both k and v)
-    cparams.cache_type_k = GGML_TYPE_Q8_0;
-    cparams.cache_type_v = GGML_TYPE_Q8_0;
     // RoPE scaling for extended context (equivalent to doubling)
     cparams.rope_freq_scale = 0.5f;
-    cparams.rope_scaling_type = LLAMA_ROPE_SCALING_LINEAR;
     // Threadpool for inference
     int n_threads = std::thread::hardware_concurrency() / 2;
     if (n_threads < 1) n_threads = 1;
     if (n_threads > 8) n_threads = 8;
     engine->threadpool = create_big_core_threadpool(n_threads);
     engine->threadpool_batch = create_big_core_threadpool(n_threads);
-    cparams.path_session = nullptr;
     cparams.n_threads = n_threads;
     cparams.n_threads_batch = n_threads;
-    if (engine->threadpool) {
-        cparams.threadpool = engine->threadpool;
-    }
-    if (engine->threadpool_batch) {
-        cparams.threadpool_batch = engine->threadpool_batch;
-    }
     engine->context = llama_init_from_model(engine->model, cparams);
     if (!engine->context) {
         LOGE("Failed to create context for model: %s", path);
@@ -1027,3 +1016,4 @@ Java_com_neuralmind_llama_LlamaJNI_getSupportedModels(JNIEnv* env, jobject thiz)
     return result;
 }
 } // extern "C"
+
