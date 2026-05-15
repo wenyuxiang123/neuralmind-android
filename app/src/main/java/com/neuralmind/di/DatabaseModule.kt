@@ -61,4 +61,14 @@ object DatabaseModule {
     fun provideToolModuleDao(database: AppDatabase): ToolModuleDao {
         return database.toolModuleDao()
     }
+
+    @Provides
+    fun provideKvSegmentDao(database: AppDatabase): KvSegmentDao {
+        return database.kvSegmentDao()
+    }
+
+    @Provides
+    fun provideContentFingerprintDao(database: AppDatabase): ContentFingerprintDao {
+        return database.contentFingerprintDao()
+    }
 }
