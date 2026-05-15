@@ -632,6 +632,9 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     std::string generatedText;
     int nGenerated = 0;
     llama_token newToken = 0;
+    llama_token lastRepeatToken = LLAMA_TOKEN_NULL;
+    int repeatCount = 0;
+    const int MAX_REPEAT = 8;
     // Start timing for performance measurement
     auto startTime = std::chrono::high_resolution_clock::now();
     while (nGenerated < engine->maxTokens) {
@@ -657,6 +660,18 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             LOGI("Streaming: generated EOS at token %d", nGenerated);
             break;
         }
+        // Repetition detection
+        if (newToken == lastRepeatToken) {
+            repeatCount++;
+            if (repeatCount >= MAX_REPEAT) {
+                LOGI("Streaming: stopping on repetition at token %d", nGenerated);
+                break;
+            }
+        } else {
+            repeatCount = 1;
+            lastRepeatToken = newToken;
+        }
+
         // Check for ChatML special tokens (<|im_end|>, <|im_start|>, etc.)
         // These might not be caught by llama_vocab_is_eog if generated as text
         {
@@ -675,6 +690,15 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         int nWritten = llama_token_to_piece(
             vocab, newToken, tokenBuf, (int)sizeof(tokenBuf), 0, false);
         if (nWritten > 0) {
+            // Text-level ChatML special token filtering
+            // Small models may generate special-token-like text as regular tokens
+            if (strstr(tokenBuf, "im_end") != nullptr ||
+                strstr(tokenBuf, "im_start") != nullptr ||
+                strstr(tokenBuf, "<|") != nullptr ||
+                strstr(tokenBuf, "|>") != nullptr) {
+                LOGI("Streaming: stopping on ChatML-like text at token %d", nGenerated);
+                break;
+            }
             generatedText += tokenBuf;
             // Stream callback: call Kotlin onToken method
             jstring jtoken = env->NewStringUTF(tokenBuf);
@@ -1030,5 +1054,6 @@ Java_com_neuralmind_llama_LlamaJNI_getSupportedModels(JNIEnv* env, jobject thiz)
     return result;
 }
 } // extern "C"
+
 
 
