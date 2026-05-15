@@ -169,7 +169,7 @@ class ChatViewModel @Inject constructor(
         
         if (modelLoaded) {
             Logger.d(Logger.Tags.VM, "generateAIResponse: model loaded, starting inference")
-            val prompt = buildPrompt(userInput, contextMessages)
+            val prompt = buildPrompt(userInput, contextMessages, modelId)
             
             llamaEngine.generate(
                 prompt = prompt,
@@ -235,47 +235,96 @@ class ChatViewModel @Inject constructor(
      * Build prompt using ChatML format for LLM inference, with memory context and skill prompts injection.
      * With token budget control to prevent context overflow.
      * FIX: contextMessages does NOT include the current user message, we add it separately.
+     */    /**
+     * Chat template format for different model families.
      */
-    private suspend fun buildPrompt(userInput: String, contextMessages: List<Message>): String {
+    private enum class ChatTemplate(val id: String) {
+        CHATML("chatml"),       // Qwen2.5
+        LLAMA3("llama3"),       // Llama 3.x
+        PHI("phi"),             // Phi-3.5
+        GEMMA("gemma"),         // Gemma
+        MISTRAL("mistral");     // Mistral
+
+        companion object {
+            fun fromModelId(modelId: String): ChatTemplate {
+                return when {
+                    modelId.startsWith("qwen") -> CHATML
+                    modelId.startsWith("llama") -> LLAMA3
+                    modelId.startsWith("phi") -> PHI
+                    modelId.startsWith("gemma") -> GEMMA
+                    modelId.startsWith("mistral") -> MISTRAL
+                    else -> CHATML  // default fallback
+                }
+            }
+        }
+    }
+
+
+    private suspend fun buildPrompt(userInput: String, contextMessages: List<Message>, modelId: String): String {
         Logger.d(Logger.Tags.VM, "buildPrompt: userInput=${userInput.take(30)}...")
+        val template = ChatTemplate.fromModelId(modelId)
         val sb = StringBuilder()
         
-        // System prompt with memory and skill context
-        sb.append("<|im_start|>system\n")
-        sb.append("你是NeuralMind AI助手，一个运行在本地设备上的智能助手。")
+        // System prompt content
+        val systemContent = StringBuilder()
+        systemContent.append("你是NeuralMind AI助手，一个运行在本地设备上的智能助手。")
         
         // Inject active skill prompts first
         val activeSkillPrompts = try { skillRepository.getActiveSystemPrompts() } catch (e: Exception) { "" }
         if (activeSkillPrompts.isNotBlank()) {
-            sb.append(activeSkillPrompts)
+            systemContent.append(activeSkillPrompts)
         }
         
         // Inject active memory context
         val activeMemories = memoryRepository.getActiveMemoriesSnapshot()
         if (activeMemories.isNotEmpty()) {
-            sb.append("\n\n【关于用户的记忆】\n")
-            
-            // Optimized for small models: limit to 3 most important memories only
+            systemContent.append("\n\n【关于用户的记忆】\n")
             val relevantMemories = activeMemories
                 .sortedByDescending { it.importance }
                 .take(3)
-            
             relevantMemories.forEach { memory ->
-                sb.append("- [${memory.layer.description}] ${memory.content}\n")
+                systemContent.append("- [${memory.layer.description}] ${memory.content}\n")
             }
         }
         
-        sb.append("<|im_end|>\n")
+        // Format based on template
+        when (template) {
+            ChatTemplate.CHATML -> {
+                sb.append("<|im_start|>system\n")
+                sb.append(systemContent.toString())
+                sb.append("<|im_end|>\n")
+            }
+            ChatTemplate.LLAMA3 -> {
+                sb.append("<|start_header_id|>system<|end_header_id|>\n\n")
+                sb.append(systemContent.toString())
+                sb.append("<|eot_id|>")
+            }
+            ChatTemplate.PHI -> {
+                sb.append("<|system|>\n")
+                sb.append(systemContent.toString())
+                sb.append("<|end|>\n")
+            }
+            ChatTemplate.GEMMA -> {
+                sb.append("<start_of_turn>user\n")
+                // Gemma doesn't have a separate system role, prepend to first user message
+                sb.append(systemContent.toString())
+                sb.append("\n\n")
+            }
+            ChatTemplate.MISTRAL -> {
+                sb.append("[INST] ")
+                sb.append(systemContent.toString())
+                sb.append("\n\n")
+            }
+        }
         
         // Calculate token budget for context messages
         val systemPromptTokens = estimateTokenCount(sb.toString())
         val userInputTokens = estimateTokenCount(userInput)
         val remainingBudget = tokenBudget - systemPromptTokens - userInputTokens
         
-        Logger.d(Logger.Tags.VM, "buildPrompt: token budget=${tokenBudget}, system=${systemPromptTokens}, userInput=${userInputTokens}, remaining=${remainingBudget}")
+        Logger.d(Logger.Tags.VM, "buildPrompt: template=$template, token budget=${tokenBudget}, system=${systemPromptTokens}, userInput=${userInputTokens}, remaining=${remainingBudget}")
         
         // Context messages with token budget control
-        // Limit to last N messages that fit within the remaining budget
         var contextTokensUsed = 0
         val limitedContextMessages = contextMessages.takeLastWhile { msg ->
             val msgTokens = estimateTokenCount(msg.content)
@@ -289,25 +338,87 @@ class ChatViewModel @Inject constructor(
         }
         
         for (msg in limitedContextMessages) {
-            val role = when (msg.role) {
-                MessageRole.USER -> "user"
-                MessageRole.ASSISTANT -> "assistant"
-                MessageRole.SYSTEM -> "system"
+            when (template) {
+                ChatTemplate.CHATML -> {
+                    val role = when (msg.role) {
+                        MessageRole.USER -> "user"
+                        MessageRole.ASSISTANT -> "assistant"
+                        MessageRole.SYSTEM -> "system"
+                    }
+                    sb.append("<|im_start|>$role\n")
+                    sb.append(msg.content)
+                    sb.append("<|im_end|>\n")
+                }
+                ChatTemplate.LLAMA3 -> {
+                    val role = when (msg.role) {
+                        MessageRole.USER -> "user"
+                        MessageRole.ASSISTANT -> "assistant"
+                        MessageRole.SYSTEM -> "system"
+                    }
+                    sb.append("<|start_header_id|>$role<|end_header_id|>\n\n")
+                    sb.append(msg.content)
+                    sb.append("<|eot_id|>")
+                }
+                ChatTemplate.PHI -> {
+                    val role = when (msg.role) {
+                        MessageRole.USER -> "user"
+                        MessageRole.ASSISTANT -> "assistant"
+                        MessageRole.SYSTEM -> "system"
+                    }
+                    sb.append("<|$role|>\n")
+                    sb.append(msg.content)
+                    sb.append("<|end|>\n")
+                }
+                ChatTemplate.GEMMA -> {
+                    val role = when (msg.role) {
+                        MessageRole.USER -> "user"
+                        MessageRole.ASSISTANT -> "model"
+                        MessageRole.SYSTEM -> "user"
+                    }
+                    sb.append("<start_of_turn>$role\n")
+                    sb.append(msg.content)
+                    sb.append("<end_of_turn>\n")
+                }
+                ChatTemplate.MISTRAL -> {
+                    if (msg.role == MessageRole.USER) {
+                        sb.append("[INST] ${msg.content} [/INST]")
+                    } else {
+                        sb.append(" ${msg.content}")
+                    }
+                }
             }
-            sb.append("<|im_start|>$role\n")
-            sb.append(msg.content)
-            sb.append("<|im_end|>\n")
         }
         
-        // Current user input (added separately, not from contextMessages)
-        sb.append("<|im_start|>user\n")
-        sb.append(userInput)
-        sb.append("<|im_end|>\n")
+        // Current user input + assistant prefix
+        when (template) {
+            ChatTemplate.CHATML -> {
+                sb.append("<|im_start|>user\n")
+                sb.append(userInput)
+                sb.append("<|im_end|>\n")
+                sb.append("<|im_start|>assistant\n")
+            }
+            ChatTemplate.LLAMA3 -> {
+                sb.append("<|start_header_id|>user<|end_header_id|>\n\n")
+                sb.append(userInput)
+                sb.append("<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n")
+            }
+            ChatTemplate.PHI -> {
+                sb.append("<|user|>\n")
+                sb.append(userInput)
+                sb.append("<|end|>\n")
+                sb.append("<|assistant|>\n")
+            }
+            ChatTemplate.GEMMA -> {
+                sb.append("<start_of_turn>user\n")
+                sb.append(userInput)
+                sb.append("<end_of_turn>\n<start_of_turn>model\n")
+            }
+            ChatTemplate.MISTRAL -> {
+                sb.append("[INST] $userInput [/INST]")
+            }
+        }
         
-        // Assistant prefix for generation
-        sb.append("<|im_start|>assistant\n")
-        
-        Logger.d(Logger.Tags.VM, "buildPrompt: completed, ${sb.length} chars, ~${estimateTokenCount(sb.toString())} tokens")
+        Logger.d(Logger.Tags.VM, "buildPrompt: completed, template=$template, ${sb.length} chars, ~${estimateTokenCount(sb.toString())} tokens")
         return sb.toString()
     }
     
