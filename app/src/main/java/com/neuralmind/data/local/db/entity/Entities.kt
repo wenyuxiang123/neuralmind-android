@@ -122,3 +122,103 @@ data class ToolModuleEntity(
     val downloadProgress: Float = 0f,
     val localPath: String? = null
 )
+
+/**
+ * KV segment entity for cross-session KV cache persistence.
+ * Stores metadata about saved KV cache segments.
+ */
+@Entity(tableName = "kv_segments")
+data class KvSegmentEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val conversationId: Long = 0,
+    val segmentIndex: Int = 0,
+    val filePath: String = "",
+    val tokenCount: Int = 0,
+    val turnStart: Int = 0,
+    val turnEnd: Int = 0,
+    val fingerprint: ByteArray? = null,
+    val fingerprintSize: Int = 0,
+    val createdAt: Long = System.currentTimeMillis()
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+        other as KvSegmentEntity
+        if (id != other.id) return false
+        if (conversationId != other.conversationId) return false
+        if (segmentIndex != other.segmentIndex) return false
+        if (filePath != other.filePath) return false
+        if (tokenCount != other.tokenCount) return false
+        if (turnStart != other.turnStart) return false
+        if (turnEnd != other.turnEnd) return false
+        if (fingerprint != null) {
+            if (other.fingerprint == null) return false
+            if (!fingerprint.contentEquals(other.fingerprint)) return false
+        } else if (other.fingerprint != null) return false
+        if (fingerprintSize != other.fingerprintSize) return false
+        if (createdAt != other.createdAt) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = id.hashCode()
+        result = 31 * result + conversationId.hashCode()
+        result = 31 * result + segmentIndex
+        result = 31 * result + filePath.hashCode()
+        result = 31 * result + tokenCount
+        result = 31 * result + turnStart
+        result = 31 * result + turnEnd
+        result = 31 * result + (fingerprint?.contentHashCode() ?: 0)
+        result = 31 * result + fingerprintSize
+        result = 31 * result + createdAt.hashCode()
+        return result
+    }
+}
+
+/**
+ * Content fingerprint entity for semantic similarity search.
+ * Stores int8-quantized embedding vectors for memories, messages, KV segments, documents.
+ */
+@Entity(tableName = "content_fingerprints")
+data class ContentFingerprintEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val contentType: String = "",          // "message", "memory", "kv_segment", "document"
+    val contentId: Long = 0,               // Corresponding content ID
+    val conversationId: Long = 0,          // Associated conversation ID (if any)
+    val fingerprint: ByteArray = byteArrayOf(),  // int8-quantized semantic fingerprint
+    val fingerprintDim: Int = 0,           // Fingerprint vector dimension
+    val summary: String = "",              // Content summary for display
+    val keywords: String = "",             // Keywords (comma-separated, for assisted retrieval)
+    val createdAt: Long = System.currentTimeMillis()
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+        other as ContentFingerprintEntity
+        if (id != other.id) return false
+        if (contentType != other.contentType) return false
+        if (contentId != other.contentId) return false
+        if (conversationId != other.conversationId) return false
+        if (!fingerprint.contentEquals(other.fingerprint)) return false
+        if (fingerprintDim != other.fingerprintDim) return false
+        if (summary != other.summary) return false
+        if (keywords != other.keywords) return false
+        if (createdAt != other.createdAt) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = id.hashCode()
+        result = 31 * result + contentType.hashCode()
+        result = 31 * result + contentId.hashCode()
+        result = 31 * result + conversationId.hashCode()
+        result = 31 * result + fingerprint.contentHashCode()
+        result = 31 * result + fingerprintDim
+        result = 31 * result + summary.hashCode()
+        result = 31 * result + keywords.hashCode()
+        result = 31 * result + createdAt.hashCode()
+        return result
+    }
+}
