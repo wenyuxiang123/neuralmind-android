@@ -377,7 +377,9 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     }
     const char* promptStr = jstringToCString(env, prompt);
     if (!promptStr) {
-        engine->isGenerating = false;
+        // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
+    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
+    engine->isGenerating = false;
         engineMutex.unlock();
         return cstringToJString(env, "Error: Invalid prompt");
     }
@@ -399,7 +401,9 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     );
     releaseJString(env, prompt, promptStr);
     if (nPromptTokens < 0) {
-        engine->isGenerating = false;
+        // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
+    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
+    engine->isGenerating = false;
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
@@ -418,7 +422,9 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     // Decode prompt
     if (llama_decode(engine->context, batch)) {
         llama_batch_free(batch);
-        engine->isGenerating = false;
+        // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
+    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
+    engine->isGenerating = false;
         return cstringToJString(env, "Error: Failed to decode prompt");
     }
     // Collect generated tokens for KV cache tracking
@@ -488,6 +494,8 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     // Cleanup
     llama_sampler_free(smpl);
     llama_batch_free(batch);
+    // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
+    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
     engine->isGenerating = false;
     LOGI("Generated %d tokens", nGenerated);
     return cstringToJString(env, generatedText);
@@ -536,7 +544,9 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     }
     const char* promptStr = jstringToCString(env, prompt);
     if (!promptStr) {
-        engine->isGenerating = false;
+        // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
+    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
+    engine->isGenerating = false;
         engineMutex.unlock();
         return cstringToJString(env, "Error: Invalid prompt");
     }
@@ -558,7 +568,9 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     );
     releaseJString(env, prompt, promptStr);
     if (nPromptTokens < 0) {
-        engine->isGenerating = false;
+        // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
+    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
+    engine->isGenerating = false;
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
@@ -587,7 +599,9 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             // Decode from common_prefix_len onwards (reuse existing KV cache)
             if (llama_decode(engine->context, cache_batch)) {
                 llama_batch_free(cache_batch);
-                engine->isGenerating = false;
+                // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
+    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
+    engine->isGenerating = false;
                 return cstringToJString(env, "Error: Failed to decode cached prompt");
             }
             llama_batch_free(cache_batch);
@@ -611,18 +625,18 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         llama_memory_clear(llama_get_memory(engine->context), true);
         if (llama_decode(engine->context, batch)) {
             llama_batch_free(batch);
-            engine->isGenerating = false;
+            // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
+    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
+    engine->isGenerating = false;
             return cstringToJString(env, "Error: Failed to decode prompt");
         }
         llama_batch_free(batch);
     }
-    // Update cached prompt tokens for future reuse
-    // Must include both prefill AND generated tokens so next call prefix matches correctly
-    engine->cached_prompt_tokens = promptTokens;
-    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
-    engine->has_cached_prompt = true;
     // Collect generated tokens for KV cache tracking
     std::vector<llama_token> generatedTokens;
+    // Update cached prompt tokens: prefill portion first, generated tokens appended after loop
+    engine->cached_prompt_tokens = promptTokens;
+    engine->has_cached_prompt = true;
     // Build sampler chain
     llama_sampler_chain_params chainParams = llama_sampler_chain_default_params();
     chainParams.no_perf = true;
@@ -696,6 +710,8 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     }
     // Cleanup
     llama_sampler_free(smpl);
+    // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
+    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
     engine->isGenerating = false;
     LOGI("Streaming: generated %d tokens total", nGenerated);
     return cstringToJString(env, generatedText);
