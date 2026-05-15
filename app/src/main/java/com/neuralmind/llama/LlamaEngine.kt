@@ -1,10 +1,10 @@
 package com.neuralmind.llama
+
 import android.content.Context
 import com.neuralmind.core.Logger
 import com.neuralmind.data.repository.ModelRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+
 @Singleton
 class LlamaEngine @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -117,6 +118,84 @@ class LlamaEngine @Inject constructor(
     fun updateConfig(newConfig: InferenceConfig) {
         Logger.d(Logger.Tags.ENGINE, "updateConfig(maxTokens=${newConfig.maxTokens}, temp=${newConfig.temperature})")
         _inferenceConfig.value = newConfig
+    }
+    
+    /**
+     * Clear the KV cache and reset cached prompt tokens.
+     * Should be called when switching conversations or resetting context.
+     */
+    fun clearPromptCache() {
+        Logger.d(Logger.Tags.ENGINE, "clearPromptCache()")
+        try {
+            ensureEngineInitialized()
+            if (engineInitialized) {
+                LlamaJNI.clearPromptCache(engineId)
+                Logger.i(Logger.Tags.ENGINE, "clearPromptCache success")
+            }
+        } catch (e: Exception) {
+            Logger.e(Logger.Tags.ENGINE, "clearPromptCache failed", e)
+        }
+    }
+    
+    /**
+     * Save KV state to file for cross-session persistence.
+     * @param filePath path to save the KV state
+     * @return true if successful
+     */
+    fun saveKvState(filePath: String): Boolean {
+        Logger.d(Logger.Tags.ENGINE, "saveKvState(filePath=$filePath)")
+        return try {
+            ensureEngineInitialized()
+            if (engineInitialized) {
+                LlamaJNI.saveKvState(engineId, filePath)
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Logger.e(Logger.Tags.ENGINE, "saveKvState failed", e)
+            false
+        }
+    }
+    
+    /**
+     * Load KV state from file for cross-session persistence.
+     * @param filePath path to load the KV state from
+     * @return true if successful
+     */
+    fun loadKvState(filePath: String): Boolean {
+        Logger.d(Logger.Tags.ENGINE, "loadKvState(filePath=$filePath)")
+        return try {
+            ensureEngineInitialized()
+            if (engineInitialized) {
+                LlamaJNI.loadKvState(engineId, filePath)
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Logger.e(Logger.Tags.ENGINE, "loadKvState failed", e)
+            false
+        }
+    }
+    
+    /**
+     * Extract fingerprint (embedding vector) from given text.
+     * Used for semantic similarity search in memory retrieval.
+     * @param text input text to extract fingerprint from
+     * @return float array representing the embedding, or null on error
+     */
+    fun extractFingerprint(text: String): FloatArray? {
+        Logger.d(Logger.Tags.ENGINE, "extractFingerprint(text=${text.take(30)}...)")
+        return try {
+            ensureEngineInitialized()
+            if (engineInitialized) {
+                LlamaJNI.extractFingerprint(engineId, text)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Logger.e(Logger.Tags.ENGINE, "extractFingerprint failed", e)
+            null
+        }
     }
     
     /**
@@ -286,6 +365,7 @@ class LlamaEngine @Inject constructor(
         }
     }
 }
+
 data class InferenceConfig(
     val maxTokens: Int = 512,        // Increased to 512 - allows longer responses for 0.5B models
     val temperature: Float = 0.7f,
@@ -294,6 +374,7 @@ data class InferenceConfig(
     val repeatPenalty: Float = 1.1f,
     val stopSequence: String? = null // Let llama_vocab_is_eog handle EOS for all model formats
 )
+
 data class ModelInfo(
     val modelId: String,
     val modelName: String,
