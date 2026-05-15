@@ -679,52 +679,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         if (nWritten > 0) {
             generatedText += tokenBuf;
 
-            // Check generatedText for ChatML special token fragments
-            // Small models split <|im_end|> across multiple tokens, producing fragments like <im, _end, |>, etc.
-            // We detect these by checking the tail of generatedText
-            {
-                size_t tlen = generatedText.size();
-                if (tlen >= 2) {
-                    // Check the last 30 chars for any ChatML fragment patterns
-                    size_t checkStart = (tlen > 30) ? tlen - 30 : 0;
-                    std::string tail = generatedText.substr(checkStart);
-                    bool foundChatML = false;
-                    if (tail.find("<im") != std::string::npos ||
-                        tail.find("im_end") != std::string::npos ||
-                        tail.find("im_start") != std::string::npos ||
-                        tail.find("imlend") != std::string::npos ||
-                        tail.find("iml_end") != std::string::npos ||
-                        tail.find("start_header_id") != std::string::npos ||
-                        tail.find("end_header_id") != std::string::npos ||
-                        tail.find("eot_id") != std::string::npos ||
-                        tail.find("end_of_turn") != std::string::npos ||
-                        tail.find("start_of_turn") != std::string::npos) {
-                        foundChatML = true;
-                    }
-                    if (foundChatML) {
-                        LOGI("Streaming: stopping on ChatML fragment at token %d", nGenerated);
-                        // Trim generatedText: find the last '<' and cut everything from there
-                        // Find the start of the special token fragment
-                        size_t cutPos = generatedText.rfind('<');
-                        if (cutPos == std::string::npos) {
-                            // Also try finding start_header_id without <
-                            cutPos = generatedText.rfind("start_header_id");
-                            if (cutPos == std::string::npos) {
-                                cutPos = generatedText.rfind("end_header_id");
-                            }
-                            if (cutPos == std::string::npos) {
-                                cutPos = generatedText.rfind("eot_id");
-                            }
-                        }
-                        if (cutPos != std::string::npos && cutPos > 0) {
-                            generatedText = generatedText.substr(0, cutPos);
-                        } else if (cutPos == 0) {
-                            generatedText.clear();
-                        }
-                        break;
-                    }
-                }
-            }
             // Stream callback: call Kotlin onToken method
             jstring jtoken = env->NewStringUTF(tokenBuf);
             if (jtoken) {
@@ -756,41 +710,66 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     engine->isGenerating = false;
     LOGI("Streaming: generated %d tokens total", nGenerated);
 
-    // Final cleanup: remove ChatML-specific tag fragments only
+    // Final cleanup: remove leaked special token text from output
     {
-        // Remove patterns like <im...>, <|im...|>, </im...> etc.
-        std::string cleaned;
-        bool skip = false;
-        for (size_t i = 0; i < generatedText.size(); ) {
-            // Check for ChatML tag start patterns
-            if (i + 2 < generatedText.size() && generatedText[i] == '<' &&
-                ((generatedText[i+1] == 'i' && generatedText[i+2] == 'm') ||  // <im
-                 (generatedText[i+1] == '|' && generatedText[i+2] == 'i') ||  // <|i
-                 (generatedText[i+1] == '/' && generatedText[i+2] == 'i') ||  // </i
-                 (generatedText[i+1] == 's' && generatedText[i+2] == 't') ||  // <st (start_of_turn, start_header_id)
-                 (generatedText[i+1] == 'e' && generatedText[i+2] == 'n') ||  // <en (end_of_turn, end_header_id)
-                 (generatedText[i+1] == '|' && generatedText[i+2] == 'e'))) { // <|e (<|end|>, <|eot_id|>)
-                skip = true;
+        // Patterns that models might leak as text tokens
+        const char* leakPatterns[] = {
+            "<|im_end|>", "<|im_start|>",
+            "<|end|>", "<|eot_id|>",
+            "<|start_header_id|>", "<|end_header_id|>",
+            "<start_of_turn>", "<end_of_turn>",
+            "<|end_of_text|>",
+            nullptr
+        };
+        for (int p = 0; leakPatterns[p] != nullptr; p++) {
+            size_t pos;
+            while ((pos = generatedText.find(leakPatterns[p])) != std::string::npos) {
+                generatedText.erase(pos, strlen(leakPatterns[p]));
             }
-            if (skip) {
-                if (generatedText[i] == '>' || generatedText[i] == '|') {
-                    skip = false;
-                }
-                i++;
-                continue;
-            }
-            cleaned += generatedText[i];
-            i++;
         }
-        generatedText = cleaned;
+        // Also clean up partial fragments that may have been split across tokens
+        // These appear as broken text like: <im_end>, <im_start>, imlend, iml_end, eot_id, etc.
+        const char* partialPatterns[] = {
+            "<im_end>", "<im_start>",
+            "im_end", "im_start",
+            "imlend", "iml_end",
+            "eot_id", "start_header_id", "end_header_id",
+            "end_of_turn", "start_of_turn",
+            "end_of_text",
+            nullptr
+        };
+        for (int p = 0; partialPatterns[p] != nullptr; p++) {
+            size_t pos;
+            while ((pos = generatedText.find(partialPatterns[p])) != std::string::npos) {
+                generatedText.erase(pos, strlen(partialPatterns[p]));
+            }
+        }
+        // Clean up any remaining angle-bracket fragments at the end
+        // (e.g., leftover < or <| from split tokens)
+        while (!generatedText.empty()) {
+            char last = generatedText.back();
+            if (last == '<' || last == '|' || last == '>') {
+                generatedText.pop_back();
+            } else {
+                break;
+            }
+        }
         // Remove trailing whitespace
-        while (!generatedText.empty() && (generatedText.back() == ' ' || generatedText.back() == '\n')) {
+        while (!generatedText.empty() && (generatedText.back() == ' ' || generatedText.back() == '\n' || generatedText.back() == '\r')) {
             generatedText.pop_back();
+        }
+        // Remove leading whitespace
+        size_t start = generatedText.find_first_not_of(" \n\r");
+        if (start == std::string::npos) {
+            generatedText.clear();
+        } else if (start > 0) {
+            generatedText = generatedText.substr(start);
         }
     }
 
     return cstringToJString(env, generatedText);
 }
+
 // Clear prompt cache - clears KV cache and resets cached tokens
 JNIEXPORT void JNICALL
 Java_com_neuralmind_llama_LlamaJNI_clearPromptCache(JNIEnv* env, jobject thiz, jlong engineId) {
