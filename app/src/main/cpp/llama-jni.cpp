@@ -737,7 +737,7 @@ Java_com_neuralmind_llama_LlamaJNI_saveKvState(JNIEnv* env, jobject thiz, jlong 
         return JNI_FALSE;
     }
     // Allocate buffer and get state data
-    std::vector<char> stateBuf(stateSize);
+    std::vector<uint8_t> stateBuf(stateSize);
     size_t written = llama_state_get_data(engine->context, stateBuf.data(), stateBuf.size());
     if (written == 0) {
         LOGE("Failed to get state data");
@@ -751,7 +751,7 @@ Java_com_neuralmind_llama_LlamaJNI_saveKvState(JNIEnv* env, jobject thiz, jlong 
         releaseJString(env, filePath, path);
         return JNI_FALSE;
     }
-    outFile.write(stateBuf.data(), written);
+    outFile.write(reinterpret_cast<const char*>(stateBuf.data()), written);
     outFile.close();
     // Save cached prompt tokens to companion file
     std::string tokensPath = std::string(path) + ".tokens";
@@ -800,8 +800,8 @@ Java_com_neuralmind_llama_LlamaJNI_loadKvState(JNIEnv* env, jobject thiz, jlong 
     size_t fileSize = inFile.tellg();
     inFile.seekg(0, std::ios::beg);
     // Read file content
-    std::vector<char> stateBuf(fileSize);
-    inFile.read(stateBuf.data(), fileSize);
+    std::vector<uint8_t> stateBuf(fileSize);
+    inFile.read(reinterpret_cast<char*>(stateBuf.data()), fileSize);
     inFile.close();
     // Load state into context
     size_t loaded = llama_state_set_data(engine->context, stateBuf.data(), fileSize);
