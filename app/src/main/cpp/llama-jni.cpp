@@ -549,7 +549,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         promptTokens.data(),
         (int)promptTokens.size(),
         true,   // add_bos
-        false   // parse_special
+        true    // parse_special - recognize <|im_start|>, <|im_end|> etc. as special tokens
     );
     releaseJString(env, prompt, promptStr);
     if (nPromptTokens < 0) {
@@ -626,57 +626,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         topK, repeatPenalty, 0.0f, 0.0f));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
-    // Register EOS text patterns as token ID sequences
-    // When small models don't output special EOS token, they spell out
-    // the end marker using regular text tokens. We detect these sequences
-    // to properly terminate generation.
-    struct EosTokenSequence {
-        std::vector<llama_token> tokens;  // token ID sequence
-        int textLen;                       // total text length these tokens produce
-    };
-    std::vector<EosTokenSequence> eosSequences;
-
-    // EOS marker texts that models might spell out as regular text tokens
-    const char* eosTexts[] = {
-        "<|im_end|>",
-        "<|im_start|>",
-        "<|eot_id|>",
-        "<|end|>",
-        "<|end_of_text|>",
-        "<|start_header_id|>",
-        "<|end_header_id|>",
-        "<start_of_turn>",
-        "<end_of_turn>",
-        nullptr
-    };
-
-    for (int i = 0; eosTexts[i] != nullptr; i++) {
-        std::vector<llama_token> seq(llama_vocab_n_tokens(vocab) + 1);
-        int n = llama_tokenize(vocab, eosTexts[i], (int)strlen(eosTexts[i]),
-                               seq.data(), (int)seq.size(), false, false);
-        if (n > 0) {
-            seq.resize(n);
-            // Calculate total text length this sequence would produce
-            int totalLen = 0;
-            for (auto t : seq) {
-                char buf[64] = {0};
-                int w = llama_token_to_piece(vocab, t, buf, (int)sizeof(buf), 0, false);
-                if (w > 0) totalLen += w;
-            }
-            eosSequences.push_back({seq, totalLen});
-            LOGI("EOS sequence registered: %s -> %d tokens, %d chars", eosTexts[i], n, totalLen);
-        }
-    }
-
-    // Calculate max sequence length for output buffer
-    int maxSeqLen = 0;
-    for (const auto& eosSeq : eosSequences) {
-        if ((int)eosSeq.tokens.size() > maxSeqLen) {
-            maxSeqLen = (int)eosSeq.tokens.size();
-        }
-    }
-    LOGI("EOS detection: %zu sequences, maxSeqLen=%d", eosSequences.size(), maxSeqLen);
-
     // Get onToken method ID for callbacks
     jclass jniClass = env->GetObjectClass(thiz);
     jmethodID onTokenMethod = env->GetMethodID(jniClass, "onToken", "(Ljava/lang/String;)V");
@@ -687,15 +636,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     llama_token lastRepeatToken = LLAMA_TOKEN_NULL;
     int repeatCount = 0;
     const int MAX_REPEAT = 8;
-    // Output buffer: holds token texts temporarily so EOS fragments
-    // can be filtered out before they reach generatedText / onToken.
-    // Buffer size = maxSeqLen, so any possible EOS sequence fits entirely
-    // within the buffer and can be detected before output.
-    struct BufferedToken {
-        llama_token id;
-        std::string text;
-    };
-    std::vector<BufferedToken> outputBuffer;
     // Start timing for performance measurement
     auto startTime = std::chrono::high_resolution_clock::now();
     while (nGenerated < engine->maxTokens) {
@@ -733,23 +673,23 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             lastRepeatToken = newToken;
         }
 
-        // Convert token to piece
+        // Convert token to piece and output directly
         char tokenBuf[128] = {0};
         int nWritten = llama_token_to_piece(
             vocab, newToken, tokenBuf, (int)sizeof(tokenBuf), 0, false);
-        
-        std::string tokenText;
         if (nWritten > 0) {
-            tokenText = std::string(tokenBuf, nWritten);
+            generatedText += tokenBuf;
+
+            // Stream callback: call Kotlin onToken method
+            jstring jtoken = env->NewStringUTF(tokenBuf);
+            if (jtoken) {
+                env->CallVoidMethod(thiz, onTokenMethod, jtoken);
+                env->DeleteLocalRef(jtoken);
+            }
         }
-        
-        // Add to output buffer (not yet to generatedText / onToken)
-        outputBuffer.push_back({newToken, tokenText});
-        
         // Accept token in sampler
         generatedTokens.push_back(newToken);
         llama_sampler_accept(smpl, newToken);
-        
         // Decode single token
         llama_batch singleBatch = llama_batch_get_one(&newToken, 1);
         if (llama_decode(engine->context, singleBatch)) {
@@ -757,71 +697,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             break;
         }
         nGenerated++;
-        
-        // Check if buffer tail matches any EOS token sequence
-        bool eosMatched = false;
-        for (const auto& eosSeq : eosSequences) {
-            int seqLen = (int)eosSeq.tokens.size();
-            if ((int)outputBuffer.size() >= seqLen) {
-                bool match = true;
-                for (int j = 0; j < seqLen; j++) {
-                    if (outputBuffer[outputBuffer.size() - seqLen + j].id != eosSeq.tokens[j]) {
-                        match = false;
-                        break;
-                    }
-                }
-                if (match) {
-                    LOGI("EOS token sequence matched (%d tokens) at generation token %d", seqLen, nGenerated);
-                    // Remove matched tokens from outputBuffer so their text never reaches UI
-                    outputBuffer.resize(outputBuffer.size() - seqLen);
-                    eosMatched = true;
-                    break;
-                }
-            }
-        }
-        if (eosMatched) {
-            // Flush remaining buffer content before breaking
-            for (const auto& bt : outputBuffer) {
-                if (!bt.text.empty()) {
-                    generatedText += bt.text;
-                    jstring jtoken = env->NewStringUTF(bt.text.c_str());
-                    if (jtoken) {
-                        env->CallVoidMethod(thiz, onTokenMethod, jtoken);
-                        env->DeleteLocalRef(jtoken);
-                    }
-                }
-            }
-            outputBuffer.clear();
-            break;
-        }
-        
-        // Flush oldest token from buffer if buffer is full
-        // (beyond maxSeqLen means it can't be part of any EOS sequence)
-        while ((int)outputBuffer.size() > maxSeqLen) {
-            const BufferedToken& oldest = outputBuffer.front();
-            if (!oldest.text.empty()) {
-                generatedText += oldest.text;
-                jstring jtoken = env->NewStringUTF(oldest.text.c_str());
-                if (jtoken) {
-                    env->CallVoidMethod(thiz, onTokenMethod, jtoken);
-                    env->DeleteLocalRef(jtoken);
-                }
-            }
-            outputBuffer.erase(outputBuffer.begin());
-        }
     }
-    // Flush any remaining buffered tokens
-    for (const auto& bt : outputBuffer) {
-        if (!bt.text.empty()) {
-            generatedText += bt.text;
-            jstring jtoken = env->NewStringUTF(bt.text.c_str());
-            if (jtoken) {
-                env->CallVoidMethod(thiz, onTokenMethod, jtoken);
-                env->DeleteLocalRef(jtoken);
-            }
-        }
-    }
-    outputBuffer.clear();
     
     // End timing and log performance
     auto endTime = std::chrono::high_resolution_clock::now();
@@ -1174,6 +1050,7 @@ Java_com_neuralmind_llama_LlamaJNI_getSupportedModels(JNIEnv* env, jobject thiz)
     return result;
 }
 } // extern "C"
+
 
 
 
