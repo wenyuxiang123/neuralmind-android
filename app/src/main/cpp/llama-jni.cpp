@@ -672,34 +672,46 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             lastRepeatToken = newToken;
         }
 
-        // Check for ChatML special tokens (<|im_end|>, <|im_start|>, etc.)
-        // These might not be caught by llama_vocab_is_eog if generated as text
-        {
-            char specialBuf[64];
-            int specialLen = llama_token_to_piece(vocab, newToken, specialBuf, sizeof(specialBuf), 0, true);
-            if (specialLen > 0) {
-                specialBuf[specialLen < 63 ? specialLen : 63] = '\0';
-                if (strstr(specialBuf, "<|") != nullptr || strstr(specialBuf, "|>") != nullptr) {
-                    LOGI("Streaming: stopping on ChatML special token at token %d", nGenerated);
-                    break;
-                }
-            }
-        }
         // Convert token to piece
         char tokenBuf[128] = {0};
         int nWritten = llama_token_to_piece(
             vocab, newToken, tokenBuf, (int)sizeof(tokenBuf), 0, false);
         if (nWritten > 0) {
-            // Text-level ChatML special token filtering
-            // Small models may generate special-token-like text as regular tokens
-            if (strstr(tokenBuf, "im_end") != nullptr ||
-                strstr(tokenBuf, "im_start") != nullptr ||
-                strstr(tokenBuf, "<|") != nullptr ||
-                strstr(tokenBuf, "|>") != nullptr) {
-                LOGI("Streaming: stopping on ChatML-like text at token %d", nGenerated);
-                break;
-            }
             generatedText += tokenBuf;
+
+            // Check generatedText for ChatML special token fragments
+            // Small models split <|im_end|> across multiple tokens, producing fragments like <im, _end, |>, etc.
+            // We detect these by checking the tail of generatedText
+            {
+                size_t tlen = generatedText.size();
+                if (tlen >= 2) {
+                    // Check the last 30 chars for any ChatML fragment patterns
+                    size_t checkStart = (tlen > 30) ? tlen - 30 : 0;
+                    std::string tail = generatedText.substr(checkStart);
+                    bool foundChatML = false;
+                    if (tail.find("<im") != std::string::npos ||
+                        tail.find("im_end") != std::string::npos ||
+                        tail.find("im_start") != std::string::npos ||
+                        tail.find("<|") != std::string::npos ||
+                        tail.find("|>") != std::string::npos ||
+                        tail.find("imlend") != std::string::npos ||
+                        tail.find("iml_end") != std::string::npos ||
+                        tail.find("/im") != std::string::npos) {
+                        foundChatML = true;
+                    }
+                    if (foundChatML) {
+                        LOGI("Streaming: stopping on ChatML fragment at token %d", nGenerated);
+                        // Trim generatedText: find the last '<' and cut everything from there
+                        size_t cutPos = generatedText.rfind('<');
+                        if (cutPos != std::string::npos && cutPos > 0) {
+                            generatedText = generatedText.substr(0, cutPos);
+                        } else if (cutPos == 0) {
+                            generatedText.clear();
+                        }
+                        break;
+                    }
+                }
+            }
             // Stream callback: call Kotlin onToken method
             jstring jtoken = env->NewStringUTF(tokenBuf);
             if (jtoken) {
@@ -730,6 +742,31 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
     engine->isGenerating = false;
     LOGI("Streaming: generated %d tokens total", nGenerated);
+
+    // Final cleanup: remove any remaining <...> tag fragments from generatedText
+    {
+        std::string cleaned;
+        bool inTag = false;
+        for (size_t i = 0; i < generatedText.size(); i++) {
+            if (generatedText[i] == '<') {
+                inTag = true;
+                continue;
+            }
+            if (inTag) {
+                if (generatedText[i] == '>') {
+                    inTag = false;
+                }
+                continue;
+            }
+            cleaned += generatedText[i];
+        }
+        generatedText = cleaned;
+        // Also remove trailing whitespace
+        while (!generatedText.empty() && (generatedText.back() == ' ' || generatedText.back() == '\n')) {
+            generatedText.pop_back();
+        }
+    }
+
     return cstringToJString(env, generatedText);
 }
 // Clear prompt cache - clears KV cache and resets cached tokens
