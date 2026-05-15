@@ -69,6 +69,7 @@ struct LlamaEngineInstance {
 static std::map<jlong, LlamaEngineInstance*> engineMap;
 static std::mutex engineMutex;
 static jlong nextEngineId = 1;
+static int backend_refcount = 0;
 // Helper: Convert Java string to C string
 static const char* jstringToCString(JNIEnv* env, jstring jstr) {
     if (!jstr) return nullptr;
@@ -186,6 +187,7 @@ JNIEXPORT jlong JNICALL
 Java_com_neuralmind_llama_LlamaJNI_createEngine(JNIEnv* env, jobject thiz) {
     // Initialize llama backend (once per process is fine, idempotent)
     llama_backend_init();
+    backend_refcount++;
     std::lock_guard<std::mutex> lock(engineMutex);
     LlamaEngineInstance* engine = new LlamaEngineInstance();
     jlong engineId = nextEngineId++;
@@ -201,10 +203,14 @@ Java_com_neuralmind_llama_LlamaJNI_destroyEngine(JNIEnv* env, jobject thiz, jlon
     if (it != engineMap.end()) {
         delete it->second;
         engineMap.erase(it);
-        LOGI("Destroyed LlamaEngine with ID: %ld", (long)engineId);
+        backend_refcount--;
+        LOGI("Destroyed LlamaEngine with ID: %ld (refcount=%d)", (long)engineId, backend_refcount);
     }
-    // Free llama backend on last engine destruction
-    llama_backend_free();
+    // Free llama backend only when all engines are destroyed
+    if (backend_refcount <= 0) {
+        llama_backend_free();
+        LOGI("All engines destroyed, llama backend freed");
+    }
 }
 // Load model from file
 JNIEXPORT jboolean JNICALL
@@ -715,6 +721,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     llama_sampler_free(smpl);
     // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
     engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
+    engine->has_cached_prompt = true;
     engine->isGenerating = false;
     LOGI("Streaming: generated %d tokens total", nGenerated);
 
