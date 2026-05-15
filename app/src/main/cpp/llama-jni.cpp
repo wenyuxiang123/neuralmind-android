@@ -421,6 +421,8 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         engine->isGenerating = false;
         return cstringToJString(env, "Error: Failed to decode prompt");
     }
+    // Collect generated tokens for KV cache tracking
+    std::vector<llama_token> generatedTokens;
     // Build sampler chain
     llama_sampler_chain_params chainParams = llama_sampler_chain_default_params();
     chainParams.no_perf = true;
@@ -615,8 +617,12 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         llama_batch_free(batch);
     }
     // Update cached prompt tokens for future reuse
+    // Must include both prefill AND generated tokens so next call prefix matches correctly
     engine->cached_prompt_tokens = promptTokens;
+    engine->cached_prompt_tokens.insert(engine->cached_prompt_tokens.end(), generatedTokens.begin(), generatedTokens.end());
     engine->has_cached_prompt = true;
+    // Collect generated tokens for KV cache tracking
+    std::vector<llama_token> generatedTokens;
     // Build sampler chain
     llama_sampler_chain_params chainParams = llama_sampler_chain_default_params();
     chainParams.no_perf = true;
