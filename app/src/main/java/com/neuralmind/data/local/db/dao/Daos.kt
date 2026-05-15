@@ -108,7 +108,7 @@ interface MemoryDao {
     @Query("SELECT * FROM memories WHERE isActive = 1 ORDER BY layer, importance DESC")
     fun getAllActiveMemories(): Flow<List<MemoryEntity>>
     
-    @Query("SELECT * FROM memories WHERE layer = :layer AND isActive = 1 ORDER BY importance DESC")
+    @Query("SELECT * FROM memories WHERE layer = :layer AND isActive = 1 ORDER BY createdAt DESC")
     fun getMemoriesByLayer(layer: String): Flow<List<MemoryEntity>>
     
     @Query("SELECT * FROM memories WHERE id = :id")
@@ -138,7 +138,7 @@ interface MemoryDao {
     @Query("SELECT COUNT(*) FROM memories WHERE layer = :layer")
     suspend fun getCountByLayer(layer: String): Int
     
-    @Query("DELETE FROM memories WHERE layer = :layer AND id NOT IN (SELECT id FROM memories WHERE layer = :layer ORDER BY importance DESC LIMIT :limit)")
+    @Query("DELETE FROM memories WHERE layer = :layer AND id NOT IN (SELECT id FROM memories WHERE layer = :layer ORDER BY createdAt DESC LIMIT :limit)")
     suspend fun pruneLayer(layer: String, limit: Int)
 }
 
@@ -290,7 +290,7 @@ interface ContentFingerprintDao {
     @Query("SELECT * FROM content_fingerprints WHERE conversationId = :conversationId ORDER BY createdAt DESC")
     fun getFingerprintsByConversation(conversationId: Long): Flow<List<ContentFingerprintEntity>>
     
-    @Query("SELECT * FROM content_fingerprints WHERE contentType = 'memory' ORDER BY importance DESC")
+    @Query("SELECT * FROM content_fingerprints WHERE contentType = 'memory' ORDER BY createdAt DESC")
     fun getMemoryFingerprints(): Flow<List<ContentFingerprintEntity>>
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -314,3 +314,4 @@ interface ContentFingerprintDao {
     @Query("SELECT * FROM content_fingerprints WHERE keywords LIKE '%' || :keyword || '%'")
     fun searchByKeyword(keyword: String): Flow<List<ContentFingerprintEntity>>
 }
+
