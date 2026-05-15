@@ -567,6 +567,9 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             // We can reuse KV cache from cached_prompt_tokens[0..common_prefix_len-1]
             // We need to decode promptTokens[common_prefix_len..nPromptTokens-1]
             decode_start_pos = common_prefix_len;
+            // Remove old KV cache entries after common_prefix_len to avoid position conflicts
+            llama_memory_seq_rm(llama_get_memory(engine->context), 0, common_prefix_len, -1);
+            LOGI("KV cache: cleared entries from pos %d onwards", common_prefix_len);
             // Find the position where the cached context ends
             llama_batch cache_batch = llama_batch_init(nPromptTokens - decode_start_pos, 0, 1);
             int cache_batch_size = nPromptTokens - decode_start_pos;
@@ -653,6 +656,19 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         if (llama_vocab_is_eog(vocab, newToken)) {
             LOGI("Streaming: generated EOS at token %d", nGenerated);
             break;
+        }
+        // Check for ChatML special tokens (<|im_end|>, <|im_start|>, etc.)
+        // These might not be caught by llama_vocab_is_eog if generated as text
+        {
+            char specialBuf[64];
+            int specialLen = llama_token_to_piece(vocab, newToken, specialBuf, sizeof(specialBuf), 0, true);
+            if (specialLen > 0) {
+                specialBuf[specialLen < 63 ? specialLen : 63] = '\0';
+                if (strstr(specialBuf, "<|") != nullptr || strstr(specialBuf, "|>") != nullptr) {
+                    LOGI("Streaming: stopping on ChatML special token at token %d", nGenerated);
+                    break;
+                }
+            }
         }
         // Convert token to piece
         char tokenBuf[128] = {0};
@@ -1014,4 +1030,5 @@ Java_com_neuralmind_llama_LlamaJNI_getSupportedModels(JNIEnv* env, jobject thiz)
     return result;
 }
 } // extern "C"
+
 
