@@ -625,6 +625,49 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
         topK, repeatPenalty, 0.0f, 0.0f));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+    // Register EOS text patterns as token ID sequences
+    // When small models don't output special EOS token, they spell out
+    // the end marker using regular text tokens. We detect these sequences
+    // to properly terminate generation.
+    struct EosTokenSequence {
+        std::vector<llama_token> tokens;  // token ID sequence
+        int textLen;                       // total text length these tokens produce
+    };
+    std::vector<EosTokenSequence> eosSequences;
+
+    // EOS marker texts that models might spell out as regular text tokens
+    const char* eosTexts[] = {
+        "<|im_end|>",
+        "<|im_start|>",
+        "<|eot_id|>",
+        "<|end|>",
+        "<|end_of_text|>",
+        "<|start_header_id|>",
+        "<|end_header_id|>",
+        "<start_of_turn>",
+        "<end_of_turn>",
+        nullptr
+    };
+
+    for (int i = 0; eosTexts[i] != nullptr; i++) {
+        std::vector<llama_token> seq(llama_vocab_n_tokens(vocab) + 1);
+        int n = llama_tokenize(vocab, eosTexts[i], (int)strlen(eosTexts[i]),
+                               seq.data(), (int)seq.size(), false, false);
+        if (n > 0) {
+            seq.resize(n);
+            // Calculate total text length this sequence would produce
+            int totalLen = 0;
+            for (auto t : seq) {
+                char buf[64] = {0};
+                int w = llama_token_to_piece(vocab, t, buf, (int)sizeof(buf), 0, false);
+                if (w > 0) totalLen += w;
+            }
+            eosSequences.push_back({seq, totalLen});
+            LOGI("EOS sequence registered: %s -> %d tokens, %d chars", eosTexts[i], n, totalLen);
+        }
+    }
+
     // Get onToken method ID for callbacks
     jclass jniClass = env->GetObjectClass(thiz);
     jmethodID onTokenMethod = env->GetMethodID(jniClass, "onToken", "(Ljava/lang/String;)V");
@@ -635,6 +678,9 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     llama_token lastRepeatToken = LLAMA_TOKEN_NULL;
     int repeatCount = 0;
     const int MAX_REPEAT = 8;
+    // Sliding window for recent token IDs (for EOS sequence detection)
+    const int MAX_RECENT_TOKENS = 32;  // max EOS sequence length we'd expect
+    std::vector<llama_token> recentTokens;
     // Start timing for performance measurement
     auto startTime = std::chrono::high_resolution_clock::now();
     while (nGenerated < engine->maxTokens) {
@@ -688,6 +734,40 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         }
         // Accept token in sampler
         generatedTokens.push_back(newToken);
+
+        // Track recent tokens for EOS sequence detection
+        recentTokens.push_back(newToken);
+        if ((int)recentTokens.size() > MAX_RECENT_TOKENS) {
+            recentTokens.erase(recentTokens.begin());
+        }
+
+        // Check if recent tokens end with any registered EOS sequence
+        bool eosMatched = false;
+        for (const auto& eosSeq : eosSequences) {
+            int seqLen = (int)eosSeq.tokens.size();
+            if ((int)recentTokens.size() >= seqLen) {
+                bool match = true;
+                for (int j = 0; j < seqLen; j++) {
+                    if (recentTokens[recentTokens.size() - seqLen + j] != eosSeq.tokens[j]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    LOGI("EOS token sequence matched (%d tokens) at generation token %d", seqLen, nGenerated);
+                    // Remove the matched sequence's text from generatedText
+                    if (eosSeq.textLen > 0 && (int)generatedText.size() >= eosSeq.textLen) {
+                        generatedText.erase(generatedText.size() - eosSeq.textLen, eosSeq.textLen);
+                    }
+                    eosMatched = true;
+                    break;
+                }
+            }
+        }
+        if (eosMatched) {
+            break;
+        }
+
         llama_sampler_accept(smpl, newToken);
         // Decode single token
         llama_batch singleBatch = llama_batch_get_one(&newToken, 1);
@@ -710,51 +790,9 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     engine->isGenerating = false;
     LOGI("Streaming: generated %d tokens total", nGenerated);
 
-    // Final cleanup: remove leaked special token text from output
+    // Final cleanup: trim whitespace only
     {
-        // Patterns that models might leak as text tokens
-        const char* leakPatterns[] = {
-            "<|im_end|>", "<|im_start|>",
-            "<|end|>", "<|eot_id|>",
-            "<|start_header_id|>", "<|end_header_id|>",
-            "<start_of_turn>", "<end_of_turn>",
-            "<|end_of_text|>",
-            nullptr
-        };
-        for (int p = 0; leakPatterns[p] != nullptr; p++) {
-            size_t pos;
-            while ((pos = generatedText.find(leakPatterns[p])) != std::string::npos) {
-                generatedText.erase(pos, strlen(leakPatterns[p]));
-            }
-        }
-        // Also clean up partial fragments that may have been split across tokens
-        // These appear as broken text like: <im_end>, <im_start>, imlend, iml_end, eot_id, etc.
-        const char* partialPatterns[] = {
-            "<im_end>", "<im_start>",
-            "im_end", "im_start",
-            "imlend", "iml_end",
-            "eot_id", "start_header_id", "end_header_id",
-            "end_of_turn", "start_of_turn",
-            "end_of_text",
-            nullptr
-        };
-        for (int p = 0; partialPatterns[p] != nullptr; p++) {
-            size_t pos;
-            while ((pos = generatedText.find(partialPatterns[p])) != std::string::npos) {
-                generatedText.erase(pos, strlen(partialPatterns[p]));
-            }
-        }
-        // Clean up any remaining angle-bracket fragments at the end
-        // (e.g., leftover < or <| from split tokens)
-        while (!generatedText.empty()) {
-            char last = generatedText.back();
-            if (last == '<' || last == '|' || last == '>') {
-                generatedText.pop_back();
-            } else {
-                break;
-            }
-        }
-        // Remove trailing whitespace
+        // Remove trailing whitespace and stray angle-bracket fragments
         while (!generatedText.empty() && (generatedText.back() == ' ' || generatedText.back() == '\n' || generatedText.back() == '\r')) {
             generatedText.pop_back();
         }
