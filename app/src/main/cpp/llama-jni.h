@@ -13,6 +13,14 @@ extern "C" {
             JNIEnv* env, jobject thiz, jlong engineId, jstring prompt,
             jint maxTokens, jfloat temperature, jfloat topP, jint topK,
             jfloat repeatPenalty, jstring stopSequence);
+    JNIEXPORT jstring JNICALL Java_com_neuralmind_llama_LlamaJNI_generateStream(
+            JNIEnv* env, jobject thiz, jlong engineId, jstring prompt,
+            jint maxTokens, jfloat temperature, jfloat topP, jint topK,
+            jfloat repeatPenalty, jstring stopSequence);
+    JNIEXPORT void JNICALL Java_com_neuralmind_llama_LlamaJNI_clearPromptCache(JNIEnv* env, jobject thiz, jlong engineId);
+    JNIEXPORT jboolean JNICALL Java_com_neuralmind_llama_LlamaJNI_saveKvState(JNIEnv* env, jobject thiz, jlong engineId, jstring filePath);
+    JNIEXPORT jboolean JNICALL Java_com_neuralmind_llama_LlamaJNI_loadKvState(JNIEnv* env, jobject thiz, jlong engineId, jstring filePath);
+    JNIEXPORT jfloatArray JNICALL Java_com_neuralmind_llama_LlamaJNI_extractFingerprint(JNIEnv* env, jobject thiz, jlong engineId, jstring text);
     JNIEXPORT void JNICALL Java_com_neuralmind_llama_LlamaJNI_stopGeneration(JNIEnv* env, jobject thiz, jlong engineId);
     JNIEXPORT jboolean JNICALL Java_com_neuralmind_llama_LlamaJNI_isGenerating(JNIEnv* env, jobject thiz, jlong engineId);
     JNIEXPORT jstring JNICALL Java_com_neuralmind_llama_LlamaJNI_getModelInfo(JNIEnv* env, jobject thiz, jlong engineId);
