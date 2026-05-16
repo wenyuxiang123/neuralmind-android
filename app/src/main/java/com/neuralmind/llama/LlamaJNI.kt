@@ -50,6 +50,9 @@ class LlamaJNI {
         external fun getModelInfo(engineId: Long): String
 
         @JvmStatic
+        external fun getNctx(engineId: Long): Int
+
+        @JvmStatic
         external fun setParameter(engineId: Long, key: String, value: String)
 
         @JvmStatic
