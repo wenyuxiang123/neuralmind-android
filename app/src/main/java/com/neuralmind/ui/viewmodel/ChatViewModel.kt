@@ -222,12 +222,16 @@ class ChatViewModel @Inject constructor(
      * English: ~1 token per word (space-separated)
      */
     private fun estimateTokenCount(text: String): Int {
-        if (text.isEmpty()) return 0
-        val chineseChars = text.count { it.code in 0x4E00..0x9FFF }
-        val englishWords = text.split(Regex("\\s+")).filter { it.isNotEmpty() }.size
-        val otherChars = text.length - chineseChars - englishWords
-        // Rough estimate: Chinese chars * 1.5, English words * 1.0, other * 1.0
-        return ((chineseChars * 1.5) + englishWords + otherChars).toInt()
+        // Conservative estimation to prevent prompt overflow
+        // CJK/special tokens: ~2 tokens each, ASCII: ~0.25 tokens each (4 chars/token)
+        var cjkCount = 0
+        var asciiCount = 0
+        for (char in text) {
+            if (char.code > 127) cjkCount++ else asciiCount++
+        }
+        val estimate = (cjkCount * 2 + asciiCount * 0.25).toInt().coerceAtLeast(1)
+        // Add 20% safety margin for template tokens and estimation error
+        return (estimate * 1.2).toInt()
     }
     
     /**
