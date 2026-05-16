@@ -64,6 +64,9 @@ class LlamaJNI {
         // New methods for KV cache management
         @JvmStatic
         external fun clearPromptCache(engineId: Long)
+        @JvmStatic
+        external fun clearKvRange(ptr: Long, seqId: Int, startPos: Int, endPos: Int)
+
 
         @JvmStatic
         external fun saveKvState(engineId: Long, filePath: String): Boolean
@@ -93,3 +96,4 @@ class LlamaJNI {
         _tokenCallback?.invoke(token)
     }
 }
+
