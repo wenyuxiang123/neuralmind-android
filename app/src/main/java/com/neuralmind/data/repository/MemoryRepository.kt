@@ -138,11 +138,9 @@ class MemoryRepository @Inject constructor(
         Logger.d(Logger.Tags.REPO, "saveConversationSegment: user=${userContent.take(20)}..., modelId=$modelId")
         try {
             val truncatedContent = if (userContent.length > 200 || aiContent.length > 200) {
-                "用户: ${userContent.take(200)}
-AI: ${aiContent.take(200)}"
+                "用户: ${userContent.take(200)}\nAI: ${aiContent.take(200)}"
             } else {
-                "用户: $userContent
-AI: $aiContent"
+                "用户: $userContent\nAI: $aiContent"
             }
             
             // L1: Working memory (current dialogue context), importance = 5
