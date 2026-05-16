@@ -405,6 +405,15 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
+    // CRITICAL: Truncate prompt tokens to fit within n_ctx (leave 1 slot for generation)
+    const int n_ctx_gen = llama_n_ctx(engine->context);
+    if (nPromptTokens >= n_ctx_gen) {
+        int excess = nPromptTokens - n_ctx_gen + 1;
+        LOGW("Prompt too long (%d tokens, n_ctx=%d), truncating %d tokens from beginning",
+             nPromptTokens, n_ctx_gen, excess);
+        promptTokens.erase(promptTokens.begin(), promptTokens.begin() + excess);
+        nPromptTokens = (int)promptTokens.size();
+    }
     // Create batch for prompt processing
     llama_batch batch = llama_batch_init((int)promptTokens.size(), 0, 1);
     batch.n_tokens = nPromptTokens;
