@@ -378,7 +378,7 @@ class LlamaEngine @Inject constructor(
 }
 
 data class InferenceConfig(
-    val maxTokens: Int = 512,        // Increased to 512 - allows longer responses for 0.5B models
+    val maxTokens: Int = 4096,       // No artificial limit - bounded by n_ctx in C++
     val temperature: Float = 0.7f,
     val topP: Float = 0.9f,
     val topK: Int = 40,
