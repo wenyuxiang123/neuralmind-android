@@ -54,21 +54,9 @@ class ChatViewModel @Inject constructor(
     
     // Reserve tokens for generation output
     private val reservedOutputTokens = 256
-    // Simple token estimation: Chinese ~1.5 tokens/char, English ~1 token/word
-    // Dynamic token budget based on current model - matches C++ calculate_dynamic_n_ctx logic
+    // Dynamic token budget using actual n_ctx from C++ engine - no more mismatches
     private val tokenBudget: Int
-        get() = calculateDynamicNctx() - reservedOutputTokens
-
-    private fun calculateDynamicNctx(): Int {
-        val modelId = llamaEngine.getModelInfo()?.modelId ?: return 1024
-        return when {
-            modelId.startsWith("qwen2.5-0.5") || modelId.startsWith("qwen2.5-1") -> 4096
-            modelId.startsWith("qwen2.5-3") || modelId.startsWith("llama3.2-3") -> 2048
-            modelId.startsWith("llama3.2-1") || modelId.startsWith("phi") -> 4096
-            modelId.startsWith("gemma") -> 2048
-            else -> 1024
-        }
-    }
+        get() = llamaEngine.getNctx() - reservedOutputTokens
     
     fun updateInputText(text: String) {
         Logger.d(Logger.Tags.VM, "updateInputText(text=${text.take(20)}...)")
