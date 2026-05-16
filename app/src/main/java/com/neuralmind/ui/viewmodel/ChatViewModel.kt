@@ -52,13 +52,23 @@ class ChatViewModel @Inject constructor(
     private val _errorEvent = Channel<String>(Channel.BUFFERED)
     val errorEvent = _errorEvent.receiveAsFlow()
     
-    // Context window size (n_ctx from llama.cpp, default 1024 for backward compatibility)
-    private val defaultNctx = 1024
     // Reserve tokens for generation output
-    private val reservedOutputTokens = 128
+    private val reservedOutputTokens = 256
     // Simple token estimation: Chinese ~1.5 tokens/char, English ~1 token/word
+    // Dynamic token budget based on current model - matches C++ calculate_dynamic_n_ctx logic
     private val tokenBudget: Int
-        get() = defaultNctx - reservedOutputTokens
+        get() = calculateDynamicNctx() - reservedOutputTokens
+
+    private fun calculateDynamicNctx(): Int {
+        val modelId = llamaEngine.getModelInfo()?.modelId ?: return 1024
+        return when {
+            modelId.startsWith("qwen2.5-0.5") || modelId.startsWith("qwen2.5-1") -> 4096
+            modelId.startsWith("qwen2.5-3") || modelId.startsWith("llama3.2-3") -> 2048
+            modelId.startsWith("llama3.2-1") || modelId.startsWith("phi") -> 4096
+            modelId.startsWith("gemma") -> 2048
+            else -> 1024
+        }
+    }
     
     fun updateInputText(text: String) {
         Logger.d(Logger.Tags.VM, "updateInputText(text=${text.take(20)}...)")
@@ -281,7 +291,7 @@ class ChatViewModel @Inject constructor(
             systemContent.append("\n\n【关于用户的记忆】\n")
             val relevantMemories = activeMemories
                 .sortedByDescending { it.importance }
-                .take(3)
+                .take(5)
             relevantMemories.forEach { memory ->
                 systemContent.append("- [${memory.layer.description}] ${memory.content}\n")
             }
