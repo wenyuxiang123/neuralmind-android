@@ -155,18 +155,14 @@ static ggml_threadpool_t create_big_core_threadpool(int n_threads) {
 }
 // Helper: Calculate dynamic n_ctx based on model parameters
 static int calculate_dynamic_n_ctx(const llama_model* model) {
-    if (!model) return 1024;
-    // llama_model_n_params returns number of parameters (e.g., 5600000000 for 5.6B)
+    if (!model) return 8192;
+    // All models use n_ctx=8192 - no token limit
+    // Qwen2.5 and Llama3.x support 128K+ training context
+    // 8192 is safe for 0.5B-7B models on 8GB RAM devices
     const int64_t n_params = llama_model_n_params(model);
     const double params_billions = n_params / 1e9;
-    LOGI("Model parameters: %.1fB, calculating n_ctx", params_billions);
-    if (params_billions <= 1.0) {
-        return 4096;  // 1B and smaller: larger context
-    } else if (params_billions <= 3.0) {
-        return 2048;  // 1B-3B: medium context
-    } else {
-        return 1024;  // >3B: standard context
-    }
+    LOGI("Model parameters: %.1fB, using n_ctx=8192", params_billions);
+    return 8192;
 }
 // Helper: Find common prefix length between two token vectors
 static int find_common_prefix_len(const std::vector<llama_token>& a, const std::vector<llama_token>& b) {
