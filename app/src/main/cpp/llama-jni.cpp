@@ -271,8 +271,6 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
     cparams.n_ctx = n_ctx;
     cparams.n_batch = 512;
     cparams.n_ubatch = 512;
-    // RoPE scaling for extended context (equivalent to doubling)
-    cparams.rope_freq_scale = 0.5f;
     // Threadpool for inference
     int n_threads = std::thread::hardware_concurrency() / 2;
     if (n_threads < 1) n_threads = 1;
