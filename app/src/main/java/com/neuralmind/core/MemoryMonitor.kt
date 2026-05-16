@@ -3,6 +3,7 @@ package com.neuralmind.core
 import android.app.ActivityManager
 import android.content.Context
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 
 class MemoryMonitor(private val context: Context) {
     private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
