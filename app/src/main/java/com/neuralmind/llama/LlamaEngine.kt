@@ -367,7 +367,7 @@ class LlamaEngine @Inject constructor(
 
     fun getNctx(): Int {
         return try {
-            val nctx = jni.getNctx(engineId)
+            val nctx = LlamaJNI.getNctx(engineId)
             Logger.d(Logger.Tags.ENGINE, "getNctx: $nctx")
             if (nctx > 0) nctx else 1024
         } catch (e: Exception) {
