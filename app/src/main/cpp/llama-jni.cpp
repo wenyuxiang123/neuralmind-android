@@ -568,44 +568,9 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
-    // KV cache prefix matching logic
-    int decode_start_pos = 0;
-    if (engine->has_cached_prompt && !engine->cached_prompt_tokens.empty()) {
-        int common_prefix_len = find_common_prefix_len(engine->cached_prompt_tokens, promptTokens);
-        LOGI("KV cache prefix match: %d/%d tokens reused (cached=%d, new=%d)",
-             common_prefix_len, nPromptTokens, 
-             (int)engine->cached_prompt_tokens.size(), nPromptTokens);
-        if (common_prefix_len > 0) {
-            // We can reuse KV cache from cached_prompt_tokens[0..common_prefix_len-1]
-            // We need to decode promptTokens[common_prefix_len..nPromptTokens-1]
-            decode_start_pos = common_prefix_len;
-            // Remove old KV cache entries after common_prefix_len to avoid position conflicts
-            llama_memory_seq_rm(llama_get_memory(engine->context), 0, common_prefix_len, -1);
-            LOGI("KV cache: cleared entries from pos %d onwards", common_prefix_len);
-            // Find the position where the cached context ends
-            llama_batch cache_batch = llama_batch_init(nPromptTokens - decode_start_pos, 0, 1);
-            int cache_batch_size = nPromptTokens - decode_start_pos;
-            cache_batch.n_tokens = cache_batch_size;
-            for (int i = 0; i < cache_batch_size; i++) {
-                cache_batch.token[i] = promptTokens[decode_start_pos + i];
-                cache_batch.pos[i] = decode_start_pos + i;
-                cache_batch.n_seq_id[i] = 1;
-                cache_batch.seq_id[i][0] = 0;
-                cache_batch.logits[i] = (i == cache_batch_size - 1) ? 1 : 0;
-            }
-            // Decode from common_prefix_len onwards (reuse existing KV cache)
-            if (llama_decode(engine->context, cache_batch)) {
-                llama_batch_free(cache_batch);
-                return cstringToJString(env, "Error: Failed to decode cached prompt");
-            }
-            llama_batch_free(cache_batch);
-        } else {
-            // No common prefix, clear cache and decode from beginning
-            LOGI("KV cache prefix mismatch, clearing cache");
-            llama_memory_clear(llama_get_memory(engine->context), true);
-        }
-    } else {
-        // No cached prompt, decode from beginning
+    // Always decode fresh - KV cache reuse disabled due to multi-turn position conflicts
+    // TODO: Re-enable KV cache prefix matching after fixing position tracking for multi-turn
+    {
         llama_batch batch = llama_batch_init(nPromptTokens, 0, 1);
         batch.n_tokens = nPromptTokens;
         for (int i = 0; i < nPromptTokens; i++) {
