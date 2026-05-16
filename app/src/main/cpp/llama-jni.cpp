@@ -249,7 +249,7 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
     LOGI("Loading model from: %s", path);
     // Set model parameters
     llama_model_params mparams = llama_model_default_params();
-    mparams.n_gpu_layers = 32;  // offload all layers to GPU
+    mparams.n_gpu_layers = 0;  // CPU-only build, no GPU offloading  // offload all layers to GPU
     mparams.use_mmap = true;     // use mmap for memory efficiency
     mparams.use_mlock = false;
     // Load model
@@ -428,7 +428,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     // Decode prompt
     if (llama_decode(engine->context, batch)) {
         llama_batch_free(batch);
-        LOGI("DIAG: prompt decode done, starting generation loop");
         return cstringToJString(env, "Error: Failed to decode prompt");
     }
     llama_batch_free(batch);
