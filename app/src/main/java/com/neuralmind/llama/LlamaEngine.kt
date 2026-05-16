@@ -136,6 +136,26 @@ class LlamaEngine @Inject constructor(
             Logger.e(Logger.Tags.ENGINE, "clearPromptCache failed", e)
         }
     }
+    /**
+     * Clear KV cache for a specific sequence range.
+     * Used for memory pressure handling to free up KV cache memory.
+     * @param seqId sequence ID (default 0)
+     * @param startPos start position (default 0)
+     * @param endPos end position, -1 means to the end (default -1)
+     */
+    fun clearKvRange(seqId: Int = 0, startPos: Int = 0, endPos: Int = -1) {
+        Logger.d(Logger.Tags.ENGINE, "clearKvRange: seqId=$seqId, startPos=$startPos, endPos=$endPos")
+        try {
+            ensureEngineInitialized()
+            if (engineInitialized) {
+                LlamaJNI.clearKvRange(engineId, seqId, startPos, endPos)
+                Logger.i(Logger.Tags.ENGINE, "clearKvRange success")
+            }
+        } catch (e: Exception) {
+            Logger.e(Logger.Tags.ENGINE, "clearKvRange failed", e)
+        }
+    }
+
     
     /**
      * Save KV state to file for cross-session persistence.
@@ -393,3 +413,4 @@ data class ModelInfo(
     val isLoaded: Boolean,
     val config: InferenceConfig
 )
+
