@@ -27,13 +27,6 @@
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-        if (totalMem > 0 && availMem > 0) break;
-    }
-    fclose(fp);
-    if (totalMem <= 0) return -1.0f;
-    return ((float)(totalMem - availMem) / totalMem) * 100.0f;
-}
-
 // Engine instance structure
 struct LlamaEngineInstance {
     llama_model * model = nullptr;
@@ -435,6 +428,7 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         llama_batch_free(batch);
         return cstringToJString(env, "Error: Failed to decode prompt");
     }
+    llama_batch_free(batch);
     // Build sampler chain
     llama_sampler_chain_params chainParams = llama_sampler_chain_default_params();
     chainParams.no_perf = true;
@@ -456,13 +450,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         if (engine->stopRequested) {
             LOGI("Generation stopped by request at token %d", nGenerated);
             break;
-        }
-        auto nowMemCheckNs = std::chrono::high_resolution_clock::now();
-        if (std::chrono::duration<double>(nowMemCheckNs - lastMemCheckNs).count() >= 1.0) {
-            lastMemCheckNs = nowMemCheckNs;
-                if (nPromptTokens > 0) {
-                }
-            }
         }
         // Check for stop sequence
         if (!engine->stopSequence.empty()) {
@@ -497,11 +484,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         }
         nGenerated++;
     }
-    {
-            if (nPromptTokens > 0) {
-            }
-        }
-    }
     // End timing and log performance
     auto endTime = std::chrono::high_resolution_clock::now();
     double elapsed = std::chrono::duration<double>(endTime - startTime).count();
@@ -512,7 +494,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     llama_sampler_free(smpl);
     // Append generated tokens to cached_prompt_tokens for correct KV prefix matching
     engine->isGenerating = false;
-    llama_batch_free(batch);
     // Update cached prompt tokens for KV prefix matching in future calls
     engine->cached_prompt_tokens = promptTokens;
     // Note: generated tokens would need to be tracked separately for full KV cache reuse
@@ -656,13 +637,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             LOGI("Streaming: stopped by request at token %d", nGenerated);
             break;
         }
-        auto nowMemCheck = std::chrono::high_resolution_clock::now();
-        if (std::chrono::duration<double>(nowMemCheck - lastMemCheck).count() >= 1.0) {
-            lastMemCheck = nowMemCheck;
-                if (nPromptTokens > 0) {
-                }
-            }
-        }
         // Check for stop sequence
         if (!engine->stopSequence.empty()) {
             std::string currentOutput = generatedText;
@@ -715,13 +689,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             break; // llama_batch_get_one does not allocate, no free needed
         }
         nGenerated++;
-    }
-    
-    {
-            int totalPos = nPromptTokens + nGenerated;
-            if (nPromptTokens > 0) {
-            }
-        }
     }
     // End timing and log performance
     auto endTime = std::chrono::high_resolution_clock::now();
