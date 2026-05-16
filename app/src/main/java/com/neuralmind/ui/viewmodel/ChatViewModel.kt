@@ -2,6 +2,9 @@ package com.neuralmind.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
+import com.neuralmind.core.MemoryMonitor
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.neuralmind.core.Logger
 import com.neuralmind.data.repository.ChatRepository
 import com.neuralmind.data.repository.ModelRepository
@@ -20,12 +23,22 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val chatRepository: ChatRepository,
     private val modelRepository: ModelRepository,
     private val memoryRepository: MemoryRepository,
     private val skillRepository: SkillRepository,
     private val llamaEngine: LlamaEngine
 ) : ViewModel() {
+    
+    // Memory monitor for detecting high memory pressure
+    private val memoryMonitor = MemoryMonitor(context)
+    
+    init {
+        // Start memory monitoring
+        memoryMonitor.startMonitoring()
+        Logger.i(Logger.Tags.VM, "ChatViewModel: memory monitoring started")
+    }
     
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -168,6 +181,14 @@ class ChatViewModel @Inject constructor(
         
         if (modelLoaded) {
             Logger.d(Logger.Tags.VM, "generateAIResponse: model loaded, starting inference")
+            
+            // Check memory pressure before inference
+            if (memoryMonitor.isMemoryPressure()) {
+                Logger.w(Logger.Tags.VM, "Memory pressure detected (${memoryMonitor.getMemoryUsagePercent().toInt()}%), clearing KV cache and L1 memories")
+                llamaEngine.clearKvRange()
+                memoryRepository.clearLayerMemories(com.neuralmind.domain.model.MemoryLayer.L1_WORKING)
+            }
+            
             val prompt = buildPrompt(userInput, contextMessages, modelId)
             
             llamaEngine.generate(
@@ -185,6 +206,8 @@ class ChatViewModel @Inject constructor(
                                 content = finalResponse,
                                 model = modelId
                             )
+                            // Save conversation segment to memory (L1/L2/L3)
+                            memoryRepository.saveConversationSegment(userInput, finalResponse, modelId)
                             Logger.i(Logger.Tags.VM, "generateAIResponse: completed, ${finalResponse.length} chars")
                             _streamingMessage.value = null
                             _uiState.update { it.copy(isStreaming = false) }
@@ -453,6 +476,12 @@ class ChatViewModel @Inject constructor(
         Logger.d(Logger.Tags.VM, "clearError")
         _uiState.update { it.copy(error = null) }
     }
+    
+    override fun onCleared() {
+        super.onCleared()
+        memoryMonitor.stopMonitoring()
+        Logger.i(Logger.Tags.VM, "ChatViewModel: memory monitoring stopped")
+    }
 }
 
 data class ChatUiState(
@@ -461,3 +490,4 @@ data class ChatUiState(
     val error: String? = null,
     val inputText: String = ""
 )
+
