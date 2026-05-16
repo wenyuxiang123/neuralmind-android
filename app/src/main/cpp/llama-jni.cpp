@@ -516,6 +516,16 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         }
         nGenerated++;
     }
+    // Post-generation memory check: if memory still high after generation, clear all historical KV cache
+    {
+        float memUsage = getMemoryUsagePercent();
+        if (memUsage > 0 && memUsage >= 80.0f) {
+            if (nPromptTokens > 0) {
+                llama_memory_seq_rm(llama_get_memory(engine->context), 0, 0, nPromptTokens);
+                LOGW("Post-gen: memory %.0f%%, cleared all historical KV cache (%d prompt tokens)", memUsage, nPromptTokens);
+            }
+        }
+    }
     // End timing and log performance
     auto endTime = std::chrono::high_resolution_clock::now();
     double elapsed = std::chrono::duration<double>(endTime - startTime).count();
@@ -738,6 +748,17 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         nGenerated++;
     }
     
+    // Post-generation memory check: if memory still high after generation, clear all historical KV cache
+    {
+        float memUsage = getMemoryUsagePercent();
+        if (memUsage > 0 && memUsage >= 80.0f) {
+            int totalPos = nPromptTokens + nGenerated;
+            if (nPromptTokens > 0) {
+                llama_memory_seq_rm(llama_get_memory(engine->context), 0, 0, nPromptTokens);
+                LOGW("Streaming post-gen: memory %.0f%%, cleared all historical KV cache (%d prompt tokens)", memUsage, nPromptTokens);
+            }
+        }
+    }
     // End timing and log performance
     auto endTime = std::chrono::high_resolution_clock::now();
     double elapsed = std::chrono::duration<double>(endTime - startTime).count();
