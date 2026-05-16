@@ -53,8 +53,9 @@ class ChatViewModel @Inject constructor(
     val errorEvent = _errorEvent.receiveAsFlow()
     
     // Reserve tokens for generation output
-    private val reservedOutputTokens = 256
-    // Dynamic token budget using actual n_ctx from C++ engine - no more mismatches
+    private val reservedOutputTokens = 512
+    // Dynamic token budget using actual n_ctx from C++ engine
+    // 512 reserved = safer margin for estimation error + generation space
     private val tokenBudget: Int
         get() = llamaEngine.getNctx() - reservedOutputTokens
     
