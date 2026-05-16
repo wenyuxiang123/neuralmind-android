@@ -478,8 +478,7 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         // Decode single token
         llama_batch singleBatch = llama_batch_get_one(&newToken, 1);
         if (llama_decode(engine->context, singleBatch)) {
-            llama_batch_free(singleBatch);
-            break;
+            break; // llama_batch_get_one does not allocate, no free needed
         }
         nGenerated++;
     }
@@ -686,8 +685,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         // Decode single token
         llama_batch singleBatch = llama_batch_get_one(&newToken, 1);
         if (llama_decode(engine->context, singleBatch)) {
-            llama_batch_free(singleBatch);
-            break;
+            break; // llama_batch_get_one does not allocate, no free needed
         }
         nGenerated++;
     }
