@@ -915,6 +915,17 @@ Java_com_neuralmind_llama_LlamaJNI_isGenerating(JNIEnv* env, jobject thiz, jlong
     }
     return it->second->isGenerating ? JNI_TRUE : JNI_FALSE;
 }
+// Get actual n_ctx from the loaded model context
+JNIEXPORT jint JNICALL
+Java_com_neuralmind_llama_LlamaJNI_getNctx(JNIEnv* env, jobject thiz, jlong engineId) {
+    std::lock_guard<std::mutex> lock(engineMutex);
+    auto it = engineMap.find(engineId);
+    if (it == engineMap.end() || !it->second->context) {
+        return 0;
+    }
+    return static_cast<jint>(llama_n_ctx(it->second->context));
+}
+
 // Get model info
 JNIEXPORT jstring JNICALL
 Java_com_neuralmind_llama_LlamaJNI_getModelInfo(JNIEnv* env, jobject thiz, jlong engineId) {
