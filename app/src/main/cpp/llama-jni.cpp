@@ -367,7 +367,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         jint topK,
         jfloat repeatPenalty,
         jstring stopSequence) {
-    crashTrace("generateStream: start");
     // Get engine pointer
     engineMutex.lock();
     auto it = engineMap.find(engineId);
@@ -421,8 +420,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
-    LOGI("DIAG: tokenize done, nPromptTokens=%d", nPromptTokens);
-    crashTrace("generateStream: tokenize done");
     // CRITICAL: Truncate prompt tokens to fit within n_ctx (leave 1 slot for generation)
     const int n_ctx_gen = llama_n_ctx(engine->context);
     if (nPromptTokens >= n_ctx_gen) {
@@ -444,16 +441,12 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     }
     // Clear KV cache before decode to ensure fresh inference
     llama_memory_clear(llama_get_memory(engine->context), true);
-        LOGI("DIAG: batch populated, starting decode");
-        crashTrace("generateStream: starting decode");
     // Decode prompt
     if (llama_decode(engine->context, batch)) {
         llama_batch_free(batch);
         return cstringToJString(env, "Error: Failed to decode prompt");
     }
     llama_batch_free(batch);
-        LOGI("DIAG: prompt decode done, starting generation loop");
-        crashTrace("generateStream: decode done, starting generation");
     // Build sampler chain
     llama_sampler_chain_params chainParams = llama_sampler_chain_default_params();
     chainParams.no_perf = true;
@@ -526,7 +519,6 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
     engine->has_cached_prompt = true;
     
     LOGI("Generated %d tokens", nGenerated);
-    crashTrace("generateStream: completed successfully");
     return cstringToJString(env, generatedText);
 }
 // Streaming generation: generates tokens and calls onToken callback for each token
@@ -577,9 +569,10 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         return cstringToJString(env, "Error: Invalid prompt");
     }
     engineMutex.unlock();
+    crashTrace("generateStream: engine acquired, starting setup");
     LOGI("Streaming generation for prompt (len=%d), maxTokens=%d, temp=%.2f",
-    LOGI("DIAG: starting tokenize");
          (int)strlen(promptStr), maxTokens, temperature);
+    crashTrace("generateStream: starting tokenize");
     // Get vocab from model
     const llama_vocab* vocab = llama_model_get_vocab(engine->model);
     // Tokenize prompt
@@ -598,7 +591,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
-    LOGI("DIAG: tokenize done, nPromptTokens=%d", nPromptTokens);
     crashTrace("generateStream: tokenize done");
     // CRITICAL: Truncate prompt tokens to fit within n_ctx (leave 1 slot for generation)
     const int n_ctx_stream = llama_n_ctx(engine->context);
@@ -608,13 +600,11 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
              nPromptTokens, n_ctx_stream, excess);
         promptTokens.erase(promptTokens.begin(), promptTokens.begin() + excess);
         nPromptTokens = (int)promptTokens.size();
-    LOGI("DIAG: after truncation, nPromptTokens=%d", nPromptTokens);
     }
     // Always decode fresh - KV cache reuse disabled due to multi-turn position conflicts
     // TODO: Re-enable KV cache prefix matching after fixing position tracking for multi-turn
     {
         llama_batch batch = llama_batch_init(nPromptTokens, 0, 1);
-        LOGI("DIAG: batch init, nPromptTokens=%d", nPromptTokens);
         crashTrace("generateStream: batch init");
         batch.n_tokens = nPromptTokens;
         for (int i = 0; i < nPromptTokens; i++) {
@@ -626,16 +616,13 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         }
         // Clear KV cache before decode to ensure fresh inference
         llama_memory_clear(llama_get_memory(engine->context), true);
-        LOGI("DIAG: batch populated, starting decode");
         crashTrace("generateStream: starting decode");
         if (llama_decode(engine->context, batch)) {
             llama_batch_free(batch);
-        LOGI("DIAG: prompt decode done, starting generation loop");
         crashTrace("generateStream: decode done, starting generation");
             return cstringToJString(env, "Error: Failed to decode prompt");
         }
         llama_batch_free(batch);
-        LOGI("DIAG: prompt decode done, starting generation loop");
         crashTrace("generateStream: decode done, starting generation");
     }
     // Update cached prompt tokens: prefill portion first, generated tokens appended after loop
@@ -655,7 +642,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
 
     // Get onToken method ID for callbacks
     jclass jniClass = env->GetObjectClass(thiz);
-    if (env->ExceptionCheck()) { env->ExceptionClear(); LOGE("DIAG: ExceptionCheck after GetObjectClass"); }
     jmethodID onTokenMethod = env->GetMethodID(jniClass, "onToken", "(Ljava/lang/String;)V");
     // Generate tokens with streaming callback
     std::string generatedText;
@@ -716,7 +702,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             jstring jtoken = env->NewStringUTF(tokenBuf);
             if (jtoken) {
                 env->CallVoidMethod(thiz, onTokenMethod, jtoken);
-                if (env->ExceptionCheck()) { env->ExceptionClear(); LOGE("DIAG: ExceptionCheck after CallVoidMethod at token %d", nGenerated); }
+                if (env->ExceptionCheck()) { env->ExceptionClear(); LOGE("JNI exception after onToken at token %d", nGenerated); }
                 env->DeleteLocalRef(jtoken);
             }
         }
@@ -729,7 +715,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             break; // llama_batch_get_one does not allocate, no free needed
         }
         nGenerated++;
-        if (nGenerated % 100 == 0) { LOGI("DIAG: generated %d tokens so far", nGenerated); }
     }
     // End timing and log performance
     auto endTime = std::chrono::high_resolution_clock::now();
@@ -758,8 +743,8 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         }
     }
 
-    crashTrace("generateStream: completed successfully");
     return cstringToJString(env, generatedText);
+    crashTrace("generateStream: completed successfully");
 }
 
 // Clear prompt cache - clears KV cache and resets cached tokens
@@ -773,7 +758,6 @@ Java_com_neuralmind_llama_LlamaJNI_clearPromptCache(JNIEnv* env, jobject thiz, j
     LlamaEngineInstance* engine = it->second;
     if (engine->context) {
         llama_memory_clear(llama_get_memory(engine->context), true);
-        LOGI("DIAG: batch populated, starting decode");
         crashTrace("generateStream: starting decode");
     }
     engine->cached_prompt_tokens.clear();
