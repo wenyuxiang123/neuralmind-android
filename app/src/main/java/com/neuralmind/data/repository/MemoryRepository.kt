@@ -129,6 +129,67 @@ class MemoryRepository @Inject constructor(
             Logger.e(Logger.Tags.REPO, "activateMemoryLayer failed: layer=${layer.name}", e)
         }
     }
+
+    /**
+     * Save a conversation segment (user message + AI response) to L1/L2/L3 memory layers.
+     * Called after each conversation turn completes.
+     */
+    suspend fun saveConversationSegment(userContent: String, aiContent: String, modelId: String) {
+        Logger.d(Logger.Tags.REPO, "saveConversationSegment: user=${userContent.take(20)}..., modelId=$modelId")
+        try {
+            val truncatedContent = if (userContent.length > 200 || aiContent.length > 200) {
+                "用户: ${userContent.take(200)}
+AI: ${aiContent.take(200)}"
+            } else {
+                "用户: $userContent
+AI: $aiContent"
+            }
+            
+            // L1: Working memory (current dialogue context), importance = 5
+            addMemory(Memory(
+                layer = MemoryLayer.L1_WORKING,
+                content = truncatedContent,
+                category = "对话",
+                importance = 5
+            ))
+            
+            // L2: Short-term memory (recent dialogue records), importance = 4
+            addMemory(Memory(
+                layer = MemoryLayer.L2_SHORT_TERM,
+                content = truncatedContent,
+                category = "对话",
+                importance = 4
+            ))
+            
+            // L3: Session memory (this session complete record), importance = 3
+            addMemory(Memory(
+                layer = MemoryLayer.L3_SESSION,
+                content = truncatedContent,
+                category = "对话",
+                importance = 3
+            ))
+            
+            Logger.i(Logger.Tags.REPO, "saveConversationSegment success: saved to L1/L2/L3 layers")
+        } catch (e: Exception) {
+            Logger.e(Logger.Tags.REPO, "saveConversationSegment failed", e)
+        }
+    }
+    
+    /**
+     * Clear all memories from a specific layer.
+     * Used for memory pressure handling to free up memory.
+     */
+    suspend fun clearLayerMemories(layer: MemoryLayer) {
+        try {
+            val entities = memoryDao.getMemoriesByLayer(layer.name).first()
+            entities.forEach { memoryDao.delete(it) }
+            Logger.i(Logger.Tags.REPO, "clearLayerMemories: cleared ${entities.size} memories from ${layer.name}")
+        } catch (e: Exception) {
+            Logger.e(Logger.Tags.REPO, "clearLayerMemories failed: ${layer.name}", e)
+        }
+    }
+    
+
     
     /**
      * Activate memory layers based on user input and automatically save user info as memories.
@@ -416,3 +477,4 @@ class MemoryRepository @Inject constructor(
         )
     }
 }
+
