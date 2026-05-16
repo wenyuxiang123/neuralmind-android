@@ -613,7 +613,11 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     const int MAX_REPEAT = 8;
     // Start timing for performance measurement
     auto startTime = std::chrono::high_resolution_clock::now();
-    while (nGenerated < engine->maxTokens) {
+    // Cap maxTokens by actual n_ctx to prevent decode failures
+    const int n_ctx_actual = llama_n_ctx(engine->context);
+    const int effectiveMaxTokens = (engine->maxTokens > 0 && engine->maxTokens < n_ctx_actual)
+                                   ? engine->maxTokens : n_ctx_actual;
+    while (nGenerated < effectiveMaxTokens) {
         // Check stop condition
         if (engine->stopRequested) {
             LOGI("Streaming: stopped by request at token %d", nGenerated);
