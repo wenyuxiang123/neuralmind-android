@@ -364,6 +364,17 @@ class LlamaEngine @Inject constructor(
             )
         }
     }
+
+    fun getNctx(): Int {
+        return try {
+            val nctx = jni.getNctx(engineId)
+            Logger.d(Logger.Tags.ENGINE, "getNctx: $nctx")
+            if (nctx > 0) nctx else 1024
+        } catch (e: Exception) {
+            Logger.e(Logger.Tags.ENGINE, "getNctx failed", e)
+            1024
+        }
+    }
 }
 
 data class InferenceConfig(
