@@ -27,19 +27,6 @@
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// Memory pressure check - reads /proc/meminfo to detect high memory usage
-// Returns memory usage percentage (0-100), or -1 on error
-static float getMemoryUsagePercent() {
-    FILE* fp = fopen("/proc/meminfo", "r");
-    if (!fp) return -1.0f;
-    long totalMem = 0, availMem = 0;
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        if (strncmp(line, "MemTotal:", 9) == 0) {
-            totalMem = atol(line + 9);
-        } else if (strncmp(line, "MemAvailable:", 13) == 0) {
-            availMem = atol(line + 13);
-        }
         if (totalMem > 0 && availMem > 0) break;
     }
     fclose(fp);
@@ -470,16 +457,10 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
             LOGI("Generation stopped by request at token %d", nGenerated);
             break;
         }
-        // Memory pressure check every ~1 second
-        static auto lastMemCheckNs = std::chrono::high_resolution_clock::now();
         auto nowMemCheckNs = std::chrono::high_resolution_clock::now();
         if (std::chrono::duration<double>(nowMemCheckNs - lastMemCheckNs).count() >= 1.0) {
             lastMemCheckNs = nowMemCheckNs;
-            float memUsage = getMemoryUsagePercent();
-            if (memUsage > 0 && memUsage >= 80.0f) {
                 if (nPromptTokens > 0) {
-                    llama_memory_seq_rm(llama_get_memory(engine->context), 0, 0, nPromptTokens);
-                    LOGW("Memory %.0f%%, cleared all historical KV cache (%d prompt tokens), continuing generation", memUsage, nPromptTokens);
                 }
             }
         }
@@ -516,13 +497,8 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         }
         nGenerated++;
     }
-    // Post-generation memory check: if memory still high after generation, clear all historical KV cache
     {
-        float memUsage = getMemoryUsagePercent();
-        if (memUsage > 0 && memUsage >= 80.0f) {
             if (nPromptTokens > 0) {
-                llama_memory_seq_rm(llama_get_memory(engine->context), 0, 0, nPromptTokens);
-                LOGW("Post-gen: memory %.0f%%, cleared all historical KV cache (%d prompt tokens)", memUsage, nPromptTokens);
             }
         }
     }
@@ -680,17 +656,10 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
             LOGI("Streaming: stopped by request at token %d", nGenerated);
             break;
         }
-        // Memory pressure check every ~1 second
-        static auto lastMemCheck = std::chrono::high_resolution_clock::now();
         auto nowMemCheck = std::chrono::high_resolution_clock::now();
         if (std::chrono::duration<double>(nowMemCheck - lastMemCheck).count() >= 1.0) {
             lastMemCheck = nowMemCheck;
-            float memUsage = getMemoryUsagePercent();
-            if (memUsage > 0 && memUsage >= 80.0f) {
-                // Delete all historical context KV cache, keep only current generation tokens
                 if (nPromptTokens > 0) {
-                    llama_memory_seq_rm(llama_get_memory(engine->context), 0, 0, nPromptTokens);
-                    LOGW("Streaming: memory %.0f%%, cleared all historical KV cache (%d prompt tokens), continuing generation", memUsage, nPromptTokens);
                 }
             }
         }
@@ -748,14 +717,9 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         nGenerated++;
     }
     
-    // Post-generation memory check: if memory still high after generation, clear all historical KV cache
     {
-        float memUsage = getMemoryUsagePercent();
-        if (memUsage > 0 && memUsage >= 80.0f) {
             int totalPos = nPromptTokens + nGenerated;
             if (nPromptTokens > 0) {
-                llama_memory_seq_rm(llama_get_memory(engine->context), 0, 0, nPromptTokens);
-                LOGW("Streaming post-gen: memory %.0f%%, cleared all historical KV cache (%d prompt tokens)", memUsage, nPromptTokens);
             }
         }
     }
@@ -816,7 +780,6 @@ Java_com_neuralmind_llama_LlamaJNI_clearKvRange(JNIEnv* env, jclass clazz, jlong
         return;
     }
     LlamaEngineInstance* engine = it->second;
-    llama_memory_seq_rm(llama_get_memory(engine->context), seqId, startPos, endPos);
     LOGI("clearKvRange: seqId=%d, startPos=%d, endPos=%d", seqId, startPos, endPos);
 }
 
