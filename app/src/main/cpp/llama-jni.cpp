@@ -736,6 +736,21 @@ Java_com_neuralmind_llama_LlamaJNI_clearPromptCache(JNIEnv* env, jobject thiz, j
     engine->has_cached_prompt = false;
     LOGI("Prompt cache cleared");
 }
+// Clear KV cache for a specific sequence range
+// endPos < 0 means [startPos, inf)
+JNIEXPORT void JNICALL
+Java_com_neuralmind_llama_LlamaJNI_clearKvRange(JNIEnv* env, jclass clazz, jlong engineId, jint seqId, jint startPos, jint endPos) {
+    std::lock_guard<std::mutex> lock(engineMutex);
+    auto it = engineMap.find(engineId);
+    if (it == engineMap.end() || !it->second->context) {
+        LOGE("Engine not found or context not loaded for clearKvRange: %ld", (long)engineId);
+        return;
+    }
+    LlamaEngineInstance* engine = it->second;
+    llama_memory_seq_rm(llama_get_memory(engine->context), seqId, startPos, endPos);
+    LOGI("clearKvRange: seqId=%d, startPos=%d, endPos=%d", seqId, startPos, endPos);
+}
+
 // Save KV state to file
 JNIEXPORT jboolean JNICALL
 Java_com_neuralmind_llama_LlamaJNI_saveKvState(JNIEnv* env, jobject thiz, jlong engineId, jstring filePath) {
