@@ -566,6 +566,15 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
+    // CRITICAL: Truncate prompt tokens to fit within n_ctx (leave 1 slot for generation)
+    const int n_ctx_stream = llama_n_ctx(engine->context);
+    if (nPromptTokens >= n_ctx_stream) {
+        int excess = nPromptTokens - n_ctx_stream + 1;
+        LOGW("Prompt too long (%d tokens, n_ctx=%d), truncating %d tokens from beginning",
+             nPromptTokens, n_ctx_stream, excess);
+        promptTokens.erase(promptTokens.begin(), promptTokens.begin() + excess);
+        nPromptTokens = (int)promptTokens.size();
+    }
     // Always decode fresh - KV cache reuse disabled due to multi-turn position conflicts
     // TODO: Re-enable KV cache prefix matching after fixing position tracking for multi-turn
     {
