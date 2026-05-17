@@ -22,6 +22,9 @@ import com.neuralmind.ui.components.DrawerContent
 import com.neuralmind.ui.navigation.AppNavigation
 import com.neuralmind.ui.navigation.Screen
 import com.neuralmind.ui.theme.*
+import android.os.Build
+import android.provider.Settings
+import com.neuralmind.service.NeuralMindAssistantService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 
@@ -35,6 +38,18 @@ class MainActivity : ComponentActivity() {
                 NeuralMindApp()
             }
         }
+        
+        // Auto-start assistant service with floating ball
+        startAssistantService()
+    }
+    
+    private fun startAssistantService() {
+        // Check overlay permission first
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            // No overlay permission yet - user needs to grant it manually
+            // We still start the service, floating ball will show once permission is granted
+        }
+        NeuralMindAssistantService.start(this)
     }
 }
 
