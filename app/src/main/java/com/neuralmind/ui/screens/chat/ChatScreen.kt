@@ -34,6 +34,11 @@ import com.neuralmind.domain.model.Message
 import com.neuralmind.domain.model.MessageRole
 import com.neuralmind.ui.theme.*
 import com.neuralmind.ui.viewmodel.ChatViewModel
+import com.neuralmind.service.FloatingBallService
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
+import android.net.Uri
 import com.neuralmind.voice.VoiceState
 import com.neuralmind.voice.VoiceViewModel
 import kotlinx.coroutines.launch
