@@ -245,8 +245,8 @@ class DeviceToolExecutor @Inject constructor(
         
         val result = service.launchApp(packageName)
         return DeviceToolResult(
-            success = result,
-            message = if (result) "已打开应用: $nameOrPackage" else "打开应用失败: $nameOrPackage (包名: $packageName)"
+            success = result.success,
+            message = if (result.success) "已打开应用: $nameOrPackage" else "打开应用失败: $nameOrPackage - ${result.message}"
         )
     }
 
@@ -299,3 +299,4 @@ class DeviceToolExecutor @Inject constructor(
         return null
     }
 }
+
