@@ -11,6 +11,8 @@ import com.neuralmind.data.repository.ModelRepository
 import com.neuralmind.data.repository.MemoryRepository
 import com.neuralmind.data.repository.SkillRepository
 import com.neuralmind.tools.DeviceToolExecutor
+import com.neuralmind.voice.TtsManager
+import com.neuralmind.service.FloatingBallService
 import com.neuralmind.service.NeuralMindAccessibilityService
 import com.neuralmind.domain.model.AIModel
 import com.neuralmind.domain.model.Conversation
@@ -32,7 +34,8 @@ class ChatViewModel @Inject constructor(
     private val memoryRepository: MemoryRepository,
     private val skillRepository: SkillRepository,
     private val llamaEngine: LlamaEngine,
-    private val deviceToolExecutor: DeviceToolExecutor
+    private val deviceToolExecutor: DeviceToolExecutor,
+    private val ttsManager: TtsManager
 ) : ViewModel() {
     
     // Memory monitor for detecting high memory pressure
@@ -636,6 +639,18 @@ class ChatViewModel @Inject constructor(
     /**
      * Clear prompt cache when switching conversations or resetting context.
      */
+
+    /**
+     * 初始化悬浮球组件，将 AI 引擎和 TTS 传入
+     */
+    fun initFloatingBallComponents() {
+        val floatingBall = FloatingBallService.getInstance() ?: return
+        floatingBall.initComponents(llamaEngine, ttsManager, deviceToolExecutor)
+        Logger.i(Logger.Tags.VM, "initFloatingBallComponents: done")
+    }
+    
+    fun isFloatingBallRunning(): Boolean = FloatingBallService.isRunning()
+    
     fun clearPromptCache() {
         Logger.d(Logger.Tags.VM, "clearPromptCache()")
         llamaEngine.clearPromptCache()
