@@ -234,7 +234,7 @@ class DeviceToolExecutor @Inject constructor(
      * 启动应用，支持应用名或包名
      */
     private fun executeLaunchApp(service: NeuralMindAccessibilityService, nameOrPackage: String): DeviceToolResult {
-        val packageName = resolveAppPackageName(nameOrPackage)
+        var packageName = resolveAppPackageName(nameOrPackage)
         
         if (packageName == null) {
             return DeviceToolResult(
@@ -243,7 +243,19 @@ class DeviceToolExecutor @Inject constructor(
             )
         }
         
-        val result = service.launchApp(packageName)
+        var result = service.launchApp(packageName)
+        
+        // If the resolved package is not installed (e.g. wrong alias for this device),
+        // try searching installed apps by name as fallback
+        if (!result.success && result.message.contains("未安装")) {
+            val altPackage = searchInstalledApp(nameOrPackage)
+            if (altPackage != null && altPackage != packageName) {
+                Logger.d(TAG, "Alias package $packageName not found, trying installed app: $altPackage")
+                packageName = altPackage
+                result = service.launchApp(packageName)
+            }
+        }
+        
         return DeviceToolResult(
             success = result.success,
             message = if (result.success) "已打开应用: $nameOrPackage" else "打开应用失败: $nameOrPackage - ${result.message}"
