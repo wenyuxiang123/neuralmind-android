@@ -72,6 +72,9 @@ class NeuralMindAssistantService : Service() {
         
         isRunning = true
         
+        // 启动悬浮球
+        startFloatingBall()
+        
         // 初始化监听（占位，后续接入语音唤醒）
         startListening()
     }
@@ -79,6 +82,7 @@ class NeuralMindAssistantService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                stopFloatingBall()
                 stopListening()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -95,6 +99,7 @@ class NeuralMindAssistantService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
+        stopFloatingBall()
         stopListening()
     }
 
@@ -205,6 +210,23 @@ class NeuralMindAssistantService : Service() {
      * 开始监听（语音唤醒占位）
      * 后续将接入语音识别引擎
      */
+    private fun startFloatingBall() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(this)) {
+            // No overlay permission, can't show floating ball
+            return
+        }
+        val intent = Intent(this, FloatingBallService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+    
+    private fun stopFloatingBall() {
+        stopService(Intent(this, FloatingBallService::class.java))
+    }
+    
     private fun startListening() {
         // TODO: 后续接入语音唤醒引擎
         // 目前仅为占位实现
