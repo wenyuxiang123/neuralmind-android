@@ -42,7 +42,7 @@ class NeuralMindAccessibilityService : AccessibilityService() {
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             // 设置标志：报告视图ID、可检索交互节点、包含不重要视图
             flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_NODES or
+                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
                     AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
             // 通知超时 100ms
             notificationTimeout = 100
@@ -192,11 +192,11 @@ class NeuralMindAccessibilityService : AccessibilityService() {
      * 使用 dispatchGesture API（API 24+）
      */
     fun clickAt(x: Int, y: Int) {
-        val clickPath = android.view.Path().apply {
+        val clickPath = android.graphics.Path().apply {
             moveTo(x.toFloat(), y.toFloat())
         }
-        val gesture = android.view.GestureDescription.Builder()
-            .addStroke(android.view.GestureDescription.StrokeDescription(clickPath, 0, 100))
+        val gesture = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(clickPath, 0, 100))
             .build()
         dispatchGesture(gesture, null, null)
     }
@@ -205,11 +205,11 @@ class NeuralMindAccessibilityService : AccessibilityService() {
      * 长按指定坐标
      */
     fun longClickAt(x: Int, y: Int) {
-        val longClickPath = android.view.Path().apply {
+        val longClickPath = android.graphics.Path().apply {
             moveTo(x.toFloat(), y.toFloat())
         }
-        val gesture = android.view.GestureDescription.Builder()
-            .addStroke(android.view.GestureDescription.StrokeDescription(longClickPath, 0, 1000))
+        val gesture = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(longClickPath, 0, 1000))
             .build()
         dispatchGesture(gesture, null, null)
     }
@@ -223,12 +223,12 @@ class NeuralMindAccessibilityService : AccessibilityService() {
      * @param duration 持续时间（毫秒）
      */
     fun swipe(startX: Int, startY: Int, endX: Int, endY: Int, duration: Long = 500) {
-        val swipePath = android.view.Path().apply {
+        val swipePath = android.graphics.Path().apply {
             moveTo(startX.toFloat(), startY.toFloat())
             lineTo(endX.toFloat(), endY.toFloat())
         }
-        val gesture = android.view.GestureDescription.Builder()
-            .addStroke(android.view.GestureDescription.StrokeDescription(swipePath, 0, duration))
+        val gesture = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(swipePath, 0, duration))
             .build()
         dispatchGesture(gesture, null, null)
     }
@@ -358,7 +358,7 @@ class NeuralMindAccessibilityService : AccessibilityService() {
         // 如果有信息或有交互能力，输出
         if (nodeInfo.isNotEmpty() || actions.isNotEmpty()) {
             builder.append(indent)
-            builder.append("[${node.className?.substringAfterLast('.') ?: "View"}]")
+            builder.append("[${node.className?.toString()?.substringAfterLast('.') ?: "View"}]")
             
             if (nodeInfo.isNotEmpty()) {
                 builder.append(" ")
@@ -462,3 +462,4 @@ class NeuralMindAccessibilityService : AccessibilityService() {
         return null
     }
 }
+
