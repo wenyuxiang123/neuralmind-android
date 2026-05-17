@@ -68,9 +68,9 @@ class FloatingBallService : Service() {
         Logger.i(TAG, "FloatingBallService created")
     }
 
-    fun initComponents(engine: LlamaEngine, tts: TtsManager, toolExecutor: DeviceToolExecutor) {
+    fun initComponents(engine: LlamaEngine, toolExecutor: DeviceToolExecutor) {
         this.llamaEngine = engine
-        this.ttsManager = tts
+        this.ttsManager = TtsManager(this)
         this.deviceToolExecutor = toolExecutor
     }
 
