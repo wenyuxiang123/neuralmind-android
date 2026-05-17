@@ -8,6 +8,7 @@ import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.content.pm.PackageManager
 
 /**
  * NeuralMind 无障碍服务 - 屏幕操控核心
@@ -273,16 +274,63 @@ class NeuralMindAccessibilityService : AccessibilityService() {
     /**
      * 启动指定应用
      * @param packageName 包名
+     * @return LaunchResult 包含成功/失败和详细原因
      */
-    fun launchApp(packageName: String): Boolean {
+    fun launchApp(packageName: String): LaunchResult {
+        // 先检查应用是否安装
+        try {
+            context.packageManager.getPackageInfo(packageName, 0)
+        } catch (e: PackageManager.NameNotFoundException) {
+            return LaunchResult(false, "应用未安装: $packageName")
+        }
+        
+        // 方式1: getLaunchIntentForPackage
         val intent = packageManager.getLaunchIntentForPackage(packageName)
         if (intent != null) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
-            return true
+            return LaunchResult(true, "已打开应用")
         }
-        return false
+        
+        // 方式2: Fallback - 用 ACTION_MAIN + CATEGORY_LAUNCHER
+        val mainIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            setPackage(packageName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            startActivity(mainIntent)
+            return LaunchResult(true, "已打开应用(fallback)")
+        } catch (e: Exception) {
+            // 方式3: 最后尝试 - 通过 resolveActivity 找到 launcher activity
+            val resolveIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                setPackage(packageName)
+            }
+            val resolveInfo = packageManager.resolveActivity(resolveIntent, 0)
+            if (resolveInfo != null) {
+                val launchIntent = Intent(Intent.ACTION_MAIN).apply {
+                    setClassName(packageName, resolveInfo.activityInfo.name)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    startActivity(launchIntent)
+                    return LaunchResult(true, "已打开应用(resolved)")
+                } catch (e2: Exception) {
+                    return LaunchResult(false, "启动失败: ${e2.message}")
+                }
+            }
+            return LaunchResult(false, "未找到启动入口: $packageName")
+        }
     }
+
+    /**
+     * 应用启动结果
+     */
+    data class LaunchResult(
+        val success: Boolean,
+        val message: String
+    )
 
     // ==================== 屏幕摘要 ====================
 
