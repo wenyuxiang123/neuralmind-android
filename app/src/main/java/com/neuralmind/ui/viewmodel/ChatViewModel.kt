@@ -11,6 +11,7 @@ import com.neuralmind.data.repository.ModelRepository
 import com.neuralmind.data.repository.MemoryRepository
 import com.neuralmind.data.repository.SkillRepository
 import com.neuralmind.tools.DeviceToolExecutor
+import com.neuralmind.service.NeuralMindAccessibilityService
 import com.neuralmind.domain.model.AIModel
 import com.neuralmind.domain.model.Conversation
 import com.neuralmind.domain.model.Message
