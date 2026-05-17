@@ -10,6 +10,7 @@ import com.neuralmind.data.repository.ChatRepository
 import com.neuralmind.data.repository.ModelRepository
 import com.neuralmind.data.repository.MemoryRepository
 import com.neuralmind.data.repository.SkillRepository
+import com.neuralmind.tools.DeviceToolExecutor
 import com.neuralmind.domain.model.AIModel
 import com.neuralmind.domain.model.Conversation
 import com.neuralmind.domain.model.Message
@@ -17,6 +18,7 @@ import com.neuralmind.domain.model.MessageRole
 import com.neuralmind.llama.LlamaEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -28,7 +30,8 @@ class ChatViewModel @Inject constructor(
     private val modelRepository: ModelRepository,
     private val memoryRepository: MemoryRepository,
     private val skillRepository: SkillRepository,
-    private val llamaEngine: LlamaEngine
+    private val llamaEngine: LlamaEngine,
+    private val deviceToolExecutor: DeviceToolExecutor
 ) : ViewModel() {
     
     // Memory monitor for detecting high memory pressure
@@ -162,8 +165,6 @@ class ChatViewModel @Inject constructor(
             model = modelId
         )
         
-        var tempResponse = ""
-        
         val modelLoaded = if (llamaEngine.isModelLoaded.value) {
             Logger.d(Logger.Tags.VM, "generateAIResponse: model already loaded")
             true
@@ -191,39 +192,8 @@ class ChatViewModel @Inject constructor(
             
             val prompt = buildPrompt(userInput, contextMessages, modelId)
             
-            llamaEngine.generate(
-                prompt = prompt,
-                onToken = { token ->
-                    tempResponse += token
-                    _streamingMessage.value = _streamingMessage.value?.copy(content = tempResponse)
-                },
-                onComplete = { finalResponse ->
-                    viewModelScope.launch {
-                        try {
-                            chatRepository.sendMessage(
-                                conversationId = conversation.id,
-                                role = MessageRole.ASSISTANT,
-                                content = finalResponse,
-                                model = modelId
-                            )
-                            // Save conversation segment to memory (L1/L2/L3)
-                            memoryRepository.saveConversationSegment(userInput, finalResponse, modelId)
-                            Logger.i(Logger.Tags.VM, "generateAIResponse: completed, ${finalResponse.length} chars")
-                            _streamingMessage.value = null
-                            _uiState.update { it.copy(isStreaming = false) }
-                        } catch (e: Exception) {
-                            Logger.e(Logger.Tags.VM, "generateAIResponse: save response failed", e)
-                        }
-                    }
-                },
-                onError = { error ->
-                    viewModelScope.launch {
-                        Logger.e(Logger.Tags.VM, "generateAIResponse error: $error")
-                        _uiState.update { it.copy(isStreaming = false) }
-                        _errorEvent.send(error)
-                    }
-                }
-            )
+            // 使用带工具执行循环的生成
+            generateWithToolLoop(conversation, prompt, modelId, userInput)
         } else {
             Logger.w(Logger.Tags.VM, "generateAIResponse: model not loaded, sending fallback response")
             val fallbackResponse = "模型未加载，请先在模型库中下载并加载一个模型！"
@@ -237,6 +207,197 @@ class ChatViewModel @Inject constructor(
             _uiState.update { it.copy(isStreaming = false) }
             _errorEvent.send("模型未加载，请先在模型库中下载并选择一个模型")
         }
+    }
+    
+    /**
+     * 带工具执行循环的 AI 生成
+     * 最多执行 MAX_TOOL_ITERATIONS 轮工具调用
+     */
+    private suspend fun generateWithToolLoop(
+        conversation: Conversation,
+        initialPrompt: String,
+        modelId: String,
+        userInput: String
+    ) {
+        var currentPrompt = initialPrompt
+        val maxIterations = 3
+        var iteration = 0
+        var allDisplayText = ""
+        
+        while (iteration < maxIterations) {
+            iteration++
+            var tempResponse = ""
+            
+            _streamingMessage.value = Message(
+                id = -1,
+                conversationId = conversation.id,
+                role = MessageRole.ASSISTANT,
+                content = if (allDisplayText.isNotBlank()) allDisplayText else "",
+                timestamp = System.currentTimeMillis(),
+                model = modelId
+            )
+            
+            // 用 CompletableDeferred 等待生成完成
+            val responseDeferred = CompletableDeferred<String>()
+            
+            llamaEngine.generate(
+                prompt = currentPrompt,
+                onToken = { token ->
+                    tempResponse += token
+                    _streamingMessage.value = _streamingMessage.value?.copy(
+                        content = allDisplayText + tempResponse
+                    )
+                },
+                onComplete = { finalResponse ->
+                    responseDeferred.complete(finalResponse)
+                },
+                onError = { error ->
+                    responseDeferred.completeExceptionally(Exception(error))
+                }
+            )
+            
+            // 等待生成完成
+            val response = try {
+                responseDeferred.await()
+            } catch (e: Exception) {
+                Logger.e(Logger.Tags.VM, "generateWithToolLoop error: ${e.message}")
+                chatRepository.sendMessage(
+                    conversationId = conversation.id,
+                    role = MessageRole.ASSISTANT,
+                    content = allDisplayText.ifBlank { "生成失败: ${e.message}" },
+                    model = modelId
+                )
+                _streamingMessage.value = null
+                _uiState.update { it.copy(isStreaming = false) }
+                return
+            }
+            
+            // 解析工具调用
+            val (cleanText, toolCalls) = deviceToolExecutor.parseToolCalls(response)
+            
+            if (toolCalls.isEmpty()) {
+                // 没有工具调用，保存并结束
+                allDisplayText += cleanText
+                chatRepository.sendMessage(
+                    conversationId = conversation.id,
+                    role = MessageRole.ASSISTANT,
+                    content = allDisplayText,
+                    model = modelId
+                )
+                memoryRepository.saveConversationSegment(userInput, allDisplayText, modelId)
+                Logger.i(Logger.Tags.VM, "generateWithToolLoop: completed, ${allDisplayText.length} chars")
+                _streamingMessage.value = null
+                _uiState.update { it.copy(isStreaming = false) }
+                return
+            }
+            
+            // 有工具调用
+            Logger.i(Logger.Tags.VM, "Found ${toolCalls.size} tool calls, executing...")
+            
+            // 保存 AI 的文字部分
+            if (cleanText.isNotBlank()) {
+                allDisplayText += cleanText + "\n"
+            }
+            
+            // 执行工具
+            val toolResults = StringBuilder()
+            toolResults.append("[工具执行结果]\n")
+            
+            for (call in toolCalls) {
+                Logger.d(Logger.Tags.VM, "Executing tool: ${call.name} → ${call.params}")
+                val result = deviceToolExecutor.executeTool(call)
+                Logger.d(Logger.Tags.VM, "Tool result: success=${result.success}, msg=${result.message}")
+                
+                toolResults.append("- ${call.name}(${call.params}): ${result.message}\n")
+                if (result.data.isNotEmpty()) {
+                    toolResults.append("  数据: ${result.data.take(500)}\n")
+                }
+            }
+            
+            allDisplayText += toolResults.toString()
+            
+            // 更新流式消息
+            _streamingMessage.value = _streamingMessage.value?.copy(content = allDisplayText)
+            
+            // 构建下一轮 prompt
+            val template = ChatTemplate.fromModelId(modelId)
+            currentPrompt = buildToolResultPrompt(template, currentPrompt, response, toolResults.toString())
+            
+            // 清除 KV 缓存，因为我们要发送新的 prompt
+            llamaEngine.clearPromptCache()
+        }
+        
+        // 超过最大迭代次数，保存已有结果
+        Logger.w(Logger.Tags.VM, "generateWithToolLoop: max iterations ($maxIterations) reached")
+        chatRepository.sendMessage(
+            conversationId = conversation.id,
+            role = MessageRole.ASSISTANT,
+            content = allDisplayText,
+            model = modelId
+        )
+        _streamingMessage.value = null
+        _uiState.update { it.copy(isStreaming = false) }
+    }
+    
+    /**
+     * 构建包含工具执行结果的 prompt，让 AI 继续对话
+     */
+    private fun buildToolResultPrompt(
+        template: ChatTemplate,
+        originalPrompt: String,
+        aiResponse: String,
+        toolResult: String
+    ): String {
+        val sb = StringBuilder()
+        
+        // 原始 prompt 中已经包含了历史对话和用户输入
+        // 我们需要追加 AI 的回复 + 工具结果 + 新的 assistant 前缀
+        sb.append(originalPrompt)
+        
+        // 追加 AI 的原始回复（包含工具调用）
+        when (template) {
+            ChatTemplate.CHATML -> {
+                sb.append(aiResponse)
+                sb.append("<|im_end|>\n")
+                // 工具结果作为 system 消息
+                sb.append("<|im_start|>system\n")
+                sb.append(toolResult)
+                sb.append("<|im_end|>\n")
+                sb.append("<|im_start|>assistant\n")
+            }
+            ChatTemplate.LLAMA3 -> {
+                sb.append(aiResponse)
+                sb.append("<|eot_id|>")
+                // 工具结果作为 system 消息
+                sb.append("<|start_header_id|>system<|end_header_id|>\n\n")
+                sb.append(toolResult)
+                sb.append("<|eot_id|>")
+                sb.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
+            }
+            ChatTemplate.PHI -> {
+                sb.append(aiResponse)
+                sb.append("<|end|>\n")
+                sb.append("<|system|>\n")
+                sb.append(toolResult)
+                sb.append("<|end|>\n")
+                sb.append("<|assistant|>\n")
+            }
+            ChatTemplate.GEMMA -> {
+                sb.append(aiResponse)
+                sb.append("<end_of_turn>\n")
+                sb.append("<start_of_turn>user\n")
+                sb.append(toolResult)
+                sb.append("<end_of_turn>\n")
+                sb.append("<start_of_turn>model\n")
+            }
+            ChatTemplate.MISTRAL -> {
+                sb.append(aiResponse)
+                sb.append(" ")
+                sb.append("[INST] $toolResult [/INST]")
+            }
+        }
+        
+        return sb.toString()
     }
     
     /**
@@ -312,6 +473,29 @@ class ChatViewModel @Inject constructor(
                 systemContent.append("- [${memory.layer.description}] ${memory.content}\n")
             }
         }
+        
+        // 注入设备工具定义
+        systemContent.append("\n\n【设备操控工具】\n")
+        systemContent.append("你可以使用以下工具来操控手机。当需要执行操作时，在回复中包含工具调用。\n")
+        systemContent.append("格式：[ACTION:工具名]参数[/ACTION]\n\n")
+        systemContent.append("可用工具：\n")
+        systemContent.append("- launch_app: 打开应用。参数为应用名或包名。例：[ACTION:launch_app]微信[/ACTION]\n")
+        systemContent.append("- click_text: 点击屏幕上的文字。例：[ACTION:click_text]确定[/ACTION]\n")
+        systemContent.append("- input_text: 输入文字。格式\"提示|内容\"，或直接输入内容。例：[ACTION:input_text]搜索|天气[/ACTION]\n")
+        systemContent.append("- go_back: 返回。例：[ACTION:go_back][/ACTION]\n")
+        systemContent.append("- go_home: 回到主页。例：[ACTION:go_home][/ACTION]\n")
+        systemContent.append("- open_notifications: 打开通知栏\n")
+        systemContent.append("- open_quick_settings: 打开快捷设置\n")
+        systemContent.append("- open_recents: 打开最近任务\n")
+        systemContent.append("- swipe_up/swipe_down/swipe_left/swipe_right: 滑动\n")
+        systemContent.append("- get_screen: 获取当前屏幕内容\n")
+        systemContent.append("- search_app: 搜索应用包名。例：[ACTION:search_app]微信[/ACTION]\n\n")
+        systemContent.append("重要规则：\n")
+        systemContent.append("1. 需要执行操作时才使用工具，纯对话不需要\n")
+        systemContent.append("2. 调用工具前先用自然语言告诉用户你要做什么\n")
+        systemContent.append("3. 不确定包名时直接用中文名，系统会自动查找\n")
+        systemContent.append("4. 一次可以调用多个工具，每个单独一行\n")
+        systemContent.append("5. 看不到屏幕时先用get_screen查看\n")
         
         // Format based on template
         when (template) {
