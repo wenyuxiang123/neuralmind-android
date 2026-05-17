@@ -16,4 +16,5 @@
     <string name="select_model">选择模型</string>
     <string name="create">创建</string>
     <string name="cancel">取消</string>
+    <string name="accessibility_service_description">NeuralMind 助手需要无障碍权限来读取屏幕内容和执行操作。启用后，AI 助手可以帮你操作手机，如拨打电话、发送短信、打开应用等。</string>
 </resources>
