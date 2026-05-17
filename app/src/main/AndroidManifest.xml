@@ -73,6 +73,50 @@
                 tools:node="remove" />
         </provider>
 
-    </application>
+    
+        <!-- 辅助功能服务 -->
+        <service
+            android:name=".service.NeuralMindAccessibilityService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
-</manifest>
+        <!-- 前台助手服务 -->
+        <service
+            android:name=".service.NeuralMindAssistantService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <intent-filter>
+                <action android:name="com.neuralmind.action.START_ASSISTANT" />
+                <action android:name="com.neuralmind.action.STOP_ASSISTANT" />
+            </intent-filter>
+        </service>
+
+        <!-- 开机自启 -->
+        <receiver
+            android:name=".service.BootReceiver"
+            android:exported="false"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+</application>
+
+
+    <!-- 语音录制 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 悬浮窗 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 前台服务特殊用途 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    </manifest>
