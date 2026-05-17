@@ -76,15 +76,21 @@ class FloatingBallService : Service() {
 
     private fun initVoiceInput() {
         voiceInputManager = VoiceInputManager(this)
-        voiceInputManager?.onResult = { text ->
-            Logger.d(TAG, "Voice result: $text")
-            onVoiceInput(text)
-        }
-        voiceInputManager?.onError = { error ->
-            Logger.e(TAG, "Voice error: $error")
-            updateStatus("语音识别失败，请重试")
-            stopListening()
-        }
+        voiceInputManager?.setCallback(object : VoiceInputManager.VoiceCallback {
+            override fun onResult(text: String) {
+                Logger.d(TAG, "Voice result: $text")
+                onVoiceInput(text)
+            }
+            override fun onPartialResult(text: String) {}
+            override fun onError(error: String) {
+                Logger.e(TAG, "Voice error: $error")
+                updateStatus("语音识别失败，请重试")
+                stopListening()
+            }
+            override fun onStateChanged(state: VoiceInputManager.State) {
+                Logger.d(TAG, "Voice state: $state")
+            }
+        })
     }
 
     @SuppressLint("ClickableViewAccessibility")
