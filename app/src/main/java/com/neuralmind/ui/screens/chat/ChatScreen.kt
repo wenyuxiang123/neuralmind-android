@@ -1,7 +1,13 @@
 package com.neuralmind.ui.screens.chat
 
+import android.Manifest
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,16 +21,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuralmind.domain.model.Message
 import com.neuralmind.domain.model.MessageRole
 import com.neuralmind.ui.theme.*
 import com.neuralmind.ui.viewmodel.ChatViewModel
+import com.neuralmind.voice.VoiceState
+import com.neuralmind.voice.VoiceViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -35,15 +46,55 @@ fun ChatScreen(
     onNavigateBack: () -> Unit,
     onNavigateToModels: () -> Unit,
     onNavigateToMemory: () -> Unit,
-    viewModel: ChatViewModel = hiltViewModel()
+    viewModel: ChatViewModel = hiltViewModel(),
+    voiceViewModel: VoiceViewModel = hiltViewModel()
 ) {
     val messages by viewModel.messages.collectAsState()
     val currentConversation by viewModel.currentConversation.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     val streamingMessage by viewModel.streamingMessage.collectAsState()
+    val voiceState by voiceViewModel.voiceState.collectAsState()
+    val partialText by voiceViewModel.partialText.collectAsState()
+    val ttsEnabled by voiceViewModel.ttsEnabled.collectAsState()
+    val isSpeaking by voiceViewModel.isSpeaking.collectAsState()
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // 录音权限请求
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            voiceViewModel.toggleListening()
+        } else {
+            Toast.makeText(context, "需要麦克风权限才能使用语音功能", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // 监听语音识别结果，自动填入输入框并发送
+    LaunchedEffect(Unit) {
+        voiceViewModel.recognizedText.collect { recognized ->
+            if (recognized.isNotEmpty()) {
+                viewModel.updateInputText(recognized)
+                // 清空 recognizedText 以便下次识别
+                voiceViewModel.recognizedText.collect { /* consume */ }
+            }
+        }
+    }
+
+    // 监听 AI 回复，语音播报
+    LaunchedEffect(streamingMessage) {
+        if (streamingMessage == null && messages.isNotEmpty()) {
+            val lastMessage = messages.first()
+            if (lastMessage.role == MessageRole.ASSISTANT && ttsEnabled) {
+                // 延迟一小段时间，确保消息已经保存
+                kotlinx.coroutines.delay(500)
+                voiceViewModel.speakText(lastMessage.content)
+            }
+        }
+    }
 
     LaunchedEffect(messages.size, streamingMessage) {
         if (messages.isNotEmpty()) { listState.animateScrollToItem(0) }
@@ -61,6 +112,33 @@ fun ChatScreen(
         modifier = Modifier.fillMaxSize()
             .background(brush = Brush.verticalGradient(colors = listOf(BackgroundPrimary, Color(0xFF0A1628))))
     ) {
+        // 顶部 TTS 开关按钮
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = { voiceViewModel.toggleTts() },
+                colors = IconButtonDefaults.iconButtonColors(
+                    contentColor = if (ttsEnabled) GradientStart else TextTertiary
+                )
+            ) {
+                Icon(
+                    imageVector = if (ttsEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                    contentDescription = if (ttsEnabled) "关闭语音播报" else "开启语音播报"
+                )
+            }
+            if (isSpeaking) {
+                Text(
+                    text = "播放中...",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = GradientStart,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+        }
+
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -74,10 +152,24 @@ fun ChatScreen(
         }
 
         DarkChatInput(
-            inputText = uiState.inputText,
+            inputText = if (partialText.isNotEmpty()) partialText else uiState.inputText,
             onInputChanged = { viewModel.updateInputText(it) },
-            onSend = { viewModel.sendMessage(uiState.inputText) },
+            onSend = {
+                val textToSend = if (partialText.isNotEmpty()) partialText else uiState.inputText
+                if (textToSend.isNotBlank()) {
+                    viewModel.sendMessage(textToSend)
+                }
+            },
             isLoading = uiState.isLoading,
+            voiceState = voiceState,
+            onVoiceClick = {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    voiceViewModel.toggleListening()
+                } else {
+                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            },
             modifier = Modifier.fillMaxWidth()
         )
     }
@@ -149,9 +241,39 @@ fun DarkMessageBubble(message: Message, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun DarkChatInput(inputText: String, onInputChanged: (String) -> Unit, onSend: () -> Unit, isLoading: Boolean, modifier: Modifier = Modifier) {
+fun DarkChatInput(
+    inputText: String,
+    onInputChanged: (String) -> Unit,
+    onSend: () -> Unit,
+    isLoading: Boolean,
+    voiceState: VoiceState,
+    onVoiceClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     var showAttachMenu by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    // 麦克风按钮动画
+    val infiniteTransition = rememberInfiniteTransition(label = "voice")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
+    val micButtonColor by animateColorAsState(
+        targetValue = when (voiceState) {
+            is VoiceState.Listening -> Color.Red
+            is VoiceState.Processing -> GradientStart
+            is VoiceState.Error -> Color(0xFFFF6B6B)
+            VoiceState.Idle -> TextSecondary
+        },
+        animationSpec = tween(300),
+        label = "micColor"
+    )
 
     Surface(modifier = modifier, color = BackgroundSecondary, shadowElevation = 8.dp) {
         Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -161,8 +283,8 @@ fun DarkChatInput(inputText: String, onInputChanged: (String) -> Unit, onSend: (
                     Icon(Icons.Default.AddCircleOutline, contentDescription = "添加")
                 }
                 DropdownMenu(expanded = showAttachMenu, onDismissRequest = { showAttachMenu = false }) {
-                    DropdownMenuItem(text = { Text("文件", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false; android.widget.Toast.makeText(context, "文件上传功能开发中", android.widget.Toast.LENGTH_SHORT).show() })
-                    DropdownMenuItem(text = { Text("图片", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false; android.widget.Toast.makeText(context, "图片上传功能开发中", android.widget.Toast.LENGTH_SHORT).show() })
+                    DropdownMenuItem(text = { Text("文件", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false; Toast.makeText(context, "文件上传功能开发中", Toast.LENGTH_SHORT).show() })
+                    DropdownMenuItem(text = { Text("图片", color = TextPrimary) }, leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, tint = TextSecondary) }, onClick = { showAttachMenu = false; Toast.makeText(context, "图片上传功能开发中", Toast.LENGTH_SHORT).show() })
                 }
             }
             // 输入框
@@ -176,9 +298,40 @@ fun DarkChatInput(inputText: String, onInputChanged: (String) -> Unit, onSend: (
                 ),
                 shape = RoundedCornerShape(24.dp), minLines = 1, maxLines = 5
             )
-            // 语音按钮
-            IconButton(onClick = { android.widget.Toast.makeText(context, "语音功能开发中", android.widget.Toast.LENGTH_SHORT).show() }, colors = IconButtonDefaults.iconButtonColors(contentColor = TextSecondary)) {
-                Icon(Icons.Default.Mic, contentDescription = "语音")
+            // 语音按钮 - 根据状态显示不同样式
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .then(
+                        if (voiceState is VoiceState.Listening) {
+                            Modifier
+                                .scale(pulseScale)
+                                .border(2.dp, Color.Red.copy(alpha = 0.5f), CircleShape)
+                        } else Modifier
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (voiceState is VoiceState.Processing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = micButtonColor
+                    )
+                } else {
+                    IconButton(
+                        onClick = onVoiceClick,
+                        colors = IconButtonDefaults.iconButtonColors(contentColor = micButtonColor)
+                    ) {
+                        Icon(
+                            imageVector = when (voiceState) {
+                                is VoiceState.Listening -> Icons.Default.Stop
+                                else -> Icons.Default.Mic
+                            },
+                            contentDescription = "语音"
+                        )
+                    }
+                }
             }
             // 发送按钮
             Box(
