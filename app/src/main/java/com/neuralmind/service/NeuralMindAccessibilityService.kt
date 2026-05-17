@@ -279,7 +279,7 @@ class NeuralMindAccessibilityService : AccessibilityService() {
     fun launchApp(packageName: String): LaunchResult {
         // 先检查应用是否安装
         try {
-            context.packageManager.getPackageInfo(packageName, 0)
+            packageManager.getPackageInfo(packageName, 0)
         } catch (e: PackageManager.NameNotFoundException) {
             return LaunchResult(false, "应用未安装: $packageName")
         }
