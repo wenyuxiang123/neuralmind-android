@@ -11,7 +11,6 @@ import com.neuralmind.data.repository.ModelRepository
 import com.neuralmind.data.repository.MemoryRepository
 import com.neuralmind.data.repository.SkillRepository
 import com.neuralmind.tools.DeviceToolExecutor
-import com.neuralmind.voice.TtsManager
 import com.neuralmind.service.FloatingBallService
 import com.neuralmind.service.NeuralMindAccessibilityService
 import com.neuralmind.domain.model.AIModel
@@ -34,8 +33,7 @@ class ChatViewModel @Inject constructor(
     private val memoryRepository: MemoryRepository,
     private val skillRepository: SkillRepository,
     private val llamaEngine: LlamaEngine,
-    private val deviceToolExecutor: DeviceToolExecutor,
-    private val ttsManager: TtsManager
+    private val deviceToolExecutor: DeviceToolExecutor
 ) : ViewModel() {
     
     // Memory monitor for detecting high memory pressure
@@ -645,7 +643,7 @@ class ChatViewModel @Inject constructor(
      */
     fun initFloatingBallComponents() {
         val floatingBall = FloatingBallService.getInstance() ?: return
-        floatingBall.initComponents(llamaEngine, ttsManager, deviceToolExecutor)
+        floatingBall.initComponents(llamaEngine, deviceToolExecutor)
         Logger.i(Logger.Tags.VM, "initFloatingBallComponents: done")
     }
     
