@@ -109,7 +109,12 @@
             </intent-filter>
         </receiver>
 
-</application>
+        <service
+            android:name=".service.FloatingBallService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+    </application>
 
 
     <!-- 语音录制 -->
