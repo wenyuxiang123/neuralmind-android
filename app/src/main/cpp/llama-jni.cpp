@@ -284,7 +284,7 @@ Java_com_neuralmind_llama_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jlong en
     // Create context with KV cache quantization and RoPE scaling
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = n_ctx;
-    cparams.n_batch = 512;
+    cparams.n_batch = 8192;  // Must be >= n_ctx to handle full-context prompts (llama_decode asserts n_tokens <= n_batch)
     cparams.n_ubatch = 512;
     // Threadpool for inference
     int n_threads = std::thread::hardware_concurrency() / 2;
@@ -591,7 +591,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
-    crashTrace("generateStream: tokenize done");
+    crashTrace("generateStream: tokenize done, actual tokens=" + std::to_string(nPromptTokens));
     // CRITICAL: Truncate prompt tokens to fit within n_ctx (leave 1 slot for generation)
     const int n_ctx_stream = llama_n_ctx(engine->context);
     if (nPromptTokens >= n_ctx_stream) {
@@ -619,7 +619,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         crashTrace("generateStream: starting decode");
         if (llama_decode(engine->context, batch)) {
             llama_batch_free(batch);
-        crashTrace("generateStream: decode done, starting generation");
+            crashTrace("generateStream: decode FAILED, nPromptTokens=" + std::to_string(nPromptTokens));
             return cstringToJString(env, "Error: Failed to decode prompt");
         }
         llama_batch_free(batch);
@@ -743,8 +743,8 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         }
     }
 
+    crashTrace("generateStream: completed successfully, generated=" + std::to_string(nGenerated) + " tokens");
     return cstringToJString(env, generatedText);
-    crashTrace("generateStream: completed successfully");
 }
 
 // Clear prompt cache - clears KV cache and resets cached tokens
@@ -1095,6 +1095,7 @@ Java_com_neuralmind_llama_LlamaJNI_getSupportedModels(JNIEnv* env, jobject thiz)
     return result;
 }
 } // extern "C"
+
 
 
 
