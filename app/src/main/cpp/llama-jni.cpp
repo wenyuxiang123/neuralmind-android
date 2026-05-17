@@ -591,7 +591,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         return cstringToJString(env, "Error: Failed to tokenize prompt");
     }
     promptTokens.resize(nPromptTokens);
-    crashTrace("generateStream: tokenize done, actual tokens=" + std::to_string(nPromptTokens));
+    crashTrace(("generateStream: tokenize done, actual tokens=" + std::to_string(nPromptTokens)).c_str());
     // CRITICAL: Truncate prompt tokens to fit within n_ctx (leave 1 slot for generation)
     const int n_ctx_stream = llama_n_ctx(engine->context);
     if (nPromptTokens >= n_ctx_stream) {
@@ -619,7 +619,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         crashTrace("generateStream: starting decode");
         if (llama_decode(engine->context, batch)) {
             llama_batch_free(batch);
-            crashTrace("generateStream: decode FAILED, nPromptTokens=" + std::to_string(nPromptTokens));
+            crashTrace(("generateStream: decode FAILED, nPromptTokens=" + std::to_string(nPromptTokens)).c_str());
             return cstringToJString(env, "Error: Failed to decode prompt");
         }
         llama_batch_free(batch);
@@ -743,7 +743,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         }
     }
 
-    crashTrace("generateStream: completed successfully, generated=" + std::to_string(nGenerated) + " tokens");
+    crashTrace(("generateStream: completed successfully, generated=" + std::to_string(nGenerated) + " tokens").c_str());
     return cstringToJString(env, generatedText);
 }
 
