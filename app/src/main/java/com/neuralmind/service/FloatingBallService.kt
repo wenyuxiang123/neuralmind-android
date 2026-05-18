@@ -19,27 +19,28 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+
 import com.neuralmind.R
 import com.neuralmind.core.Logger
 import com.neuralmind.llama.LlamaEngine
 import com.neuralmind.voice.VoiceInputManager
 import com.neuralmind.voice.TtsManager
 import com.neuralmind.tools.DeviceToolExecutor
+
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class FloatingBallService : Service() {
-
     companion object {
         private const val TAG = "FloatingBall"
-        private var instance: FloatingBallService? = null
-        fun getInstance(): FloatingBallService? = instance
-        fun isRunning(): Boolean = instance != null
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    private var windowManager: WindowManager? = null
 
     // Views
+    private var windowManager: WindowManager? = null
     private var ballView: View? = null
     private var panelView: View? = null
 
@@ -48,11 +49,11 @@ class FloatingBallService : Service() {
     private var isListening = false
     private var isProcessing = false
 
-    // AI components
-    private var llamaEngine: LlamaEngine? = null
+    // AI components - injected via Hilt
+    @Inject lateinit var llamaEngine: LlamaEngine
     private var voiceInputManager: VoiceInputManager? = null
     private var ttsManager: TtsManager? = null
-    private var deviceToolExecutor: DeviceToolExecutor? = null
+    @Inject lateinit var deviceToolExecutor: DeviceToolExecutor
 
     // Panel views
     private var statusText: TextView? = null
@@ -60,18 +61,11 @@ class FloatingBallService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        instance = this
         startForegroundNotification()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         initVoiceInput()
         showFloatingBall()
         Logger.i(TAG, "FloatingBallService created")
-    }
-
-    fun initComponents(engine: LlamaEngine, toolExecutor: DeviceToolExecutor) {
-        this.llamaEngine = engine
-        this.ttsManager = TtsManager(this)
-        this.deviceToolExecutor = toolExecutor
     }
 
     private fun initVoiceInput() {
@@ -96,20 +90,16 @@ class FloatingBallService : Service() {
     @SuppressLint("ClickableViewAccessibility")
     private fun showFloatingBall() {
         val ballSize = dpToPx(48)
-
         val ballContainer = FrameLayout(this)
-
         val ballIcon = ImageView(this).apply {
             setImageResource(android.R.drawable.ic_btn_speak_now)
             setBackgroundResource(R.drawable.floating_ball_bg)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
         }
-
         ballContainer.addView(ballIcon, FrameLayout.LayoutParams(ballSize, ballSize).apply {
             gravity = Gravity.CENTER
         })
-
         ballView = ballContainer
 
         val params = WindowManager.LayoutParams(
@@ -161,7 +151,6 @@ class FloatingBallService : Service() {
                 else -> false
             }
         }
-
         windowManager?.addView(ballView, params)
     }
 
@@ -184,7 +173,6 @@ class FloatingBallService : Service() {
 
         val panelWidth = (getScreenWidth() * 0.8).toInt()
         val panelHeight = dpToPx(240)
-
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xF01E1E2E.toInt())
@@ -235,7 +223,6 @@ class FloatingBallService : Service() {
         ).apply {
             gravity = Gravity.CENTER
         }
-
         windowManager?.addView(panelView, params)
         startListening()
     }
@@ -275,22 +262,21 @@ class FloatingBallService : Service() {
     }
 
     private fun processUserInput(userInput: String) {
+        if (ttsManager == null) ttsManager = TtsManager(this)
+        
         isProcessing = true
         serviceScope.launch {
             try {
-                val engine = llamaEngine
-                if (engine == null || !engine.isModelLoaded.value) {
+                if (!llamaEngine.isModelLoaded.value) {
                     updateResult("AI 模型未加载，请先在 NeuralMind 中加载模型")
                     ttsManager?.speak("模型未加载")
                     isProcessing = false
                     return@launch
                 }
-
                 updateStatus("AI 思考中...")
                 val prompt = buildPromptWithScreenContext(userInput)
-
                 var response = ""
-                engine.generate(
+                llamaEngine.generate(
                     prompt = prompt,
                     onToken = { token -> response += token },
                     onComplete = { finalResponse ->
@@ -312,14 +298,7 @@ class FloatingBallService : Service() {
     }
 
     private suspend fun handleAIResponse(response: String, userInput: String) {
-        val executor = deviceToolExecutor ?: run {
-            updateResult(response)
-            isProcessing = false
-            return
-        }
-
-        val (cleanText, toolCalls) = executor.parseToolCalls(response)
-
+        val (cleanText, toolCalls) = deviceToolExecutor.parseToolCalls(response)
         if (toolCalls.isEmpty()) {
             updateResult(cleanText)
             ttsManager?.speak(cleanText.take(200))
@@ -328,13 +307,11 @@ class FloatingBallService : Service() {
         }
 
         var displayText = if (cleanText.isNotBlank()) cleanText + "\n" else ""
-
         for (call in toolCalls) {
             updateStatus("执行: ${call.name}(${call.params})")
-            val result = executor.executeTool(call)
+            val result = deviceToolExecutor.executeTool(call)
             displayText += "${result.message}\n"
         }
-
         updateResult(displayText)
         ttsManager?.speak(displayText.take(200))
         isProcessing = false
@@ -402,13 +379,11 @@ class FloatingBallService : Service() {
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
         }
-
         val notification = Notification.Builder(this, channelId)
             .setContentTitle("NeuralMind AI 助手")
             .setContentText("悬浮球已启动，点击麦克风说话")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
-
         startForeground(2, notification)
     }
 
@@ -419,7 +394,6 @@ class FloatingBallService : Service() {
         ballView?.let { try { windowManager?.removeView(it) } catch (_: Exception) {} }
         ballView = null
         voiceInputManager?.destroy()
-        instance = null
         Logger.i(TAG, "FloatingBallService destroyed")
     }
 
