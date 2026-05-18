@@ -1,6 +1,7 @@
 package com.neuralmind.tools
 
 import android.content.Context
+import android.view.accessibility.AccessibilityNodeInfo
 import com.neuralmind.service.NeuralMindAccessibilityService
 import com.neuralmind.core.Logger
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -107,9 +108,24 @@ class DeviceToolExecutor @Inject constructor(
                     service.findAndInputText(parts[0].trim(), parts[1].trim())
                 } else {
                     // 尝试找到当前焦点的编辑框并输入
-                    service.inputText(call.params)
+                    val rootNode = service.rootInActiveWindow
+                    if (rootNode != null) {
+                        val focusNode = rootNode.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                        if (focusNode != null && focusNode.isEditable) {
+                            val r = service.inputText(focusNode, call.params)
+                            focusNode.recycle()
+                            rootNode.recycle()
+                            r
+                        } else {
+                            focusNode?.recycle()
+                            rootNode.recycle()
+                            service.findAndInputText("", call.params)
+                        }
+                    } else {
+                        false
+                    }
                 }
-                DeviceToolResult(result, if (result) "已输入文字" else "未找到可输入的编辑框")
+                DeviceToolResult(result, if (result) "已输入: ${call.params}" else "未找到输入框")
             }
             "go_back" -> {
                 service.goBack()
@@ -132,20 +148,20 @@ class DeviceToolExecutor @Inject constructor(
                 DeviceToolResult(true, "已打开最近任务")
             }
             "swipe_up" -> {
-                service.swipeUp()
-                DeviceToolResult(true, "已上滑")
+                service.swipe(540, 1600, 540, 400, 500)
+                DeviceToolResult(true, "已向上滑动")
             }
             "swipe_down" -> {
-                service.swipeDown()
-                DeviceToolResult(true, "已下滑")
+                service.swipe(540, 400, 540, 1600, 500)
+                DeviceToolResult(true, "已向下滑动")
             }
             "swipe_left" -> {
-                service.swipeLeft()
-                DeviceToolResult(true, "已左滑")
+                service.swipe(900, 1000, 200, 1000, 500)
+                DeviceToolResult(true, "已向左滑动")
             }
             "swipe_right" -> {
-                service.swipeRight()
-                DeviceToolResult(true, "已右滑")
+                service.swipe(200, 1000, 900, 1000, 500)
+                DeviceToolResult(true, "已向右滑动")
             }
             "get_screen" -> {
                 val text = service.getScreenText()
