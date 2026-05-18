@@ -649,7 +649,7 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     llama_token newToken = 0;
     llama_token lastRepeatToken = LLAMA_TOKEN_NULL;
     int repeatCount = 0;
-    const int MAX_REPEAT = 8;
+    const int MAX_REPEAT = 32;
     // Start timing for performance measurement
     auto startTime = std::chrono::high_resolution_clock::now();
     // Cap maxTokens by actual n_ctx to prevent decode failures
