@@ -11,7 +11,6 @@ import com.neuralmind.data.repository.ModelRepository
 import com.neuralmind.data.repository.MemoryRepository
 import com.neuralmind.data.repository.SkillRepository
 import com.neuralmind.tools.DeviceToolExecutor
-import com.neuralmind.service.FloatingBallService
 import com.neuralmind.service.NeuralMindAccessibilityService
 import com.neuralmind.domain.model.AIModel
 import com.neuralmind.domain.model.Conversation
@@ -383,6 +382,7 @@ class ChatViewModel @Inject constructor(
                 sb.append(toolResult)
                 sb.append("<|end|>\n")
                 sb.append("<|assistant|>\n")
+
             }
             ChatTemplate.GEMMA -> {
                 sb.append(aiResponse)
@@ -448,7 +448,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-
     private suspend fun buildPrompt(userInput: String, contextMessages: List<Message>, modelId: String): String {
         Logger.d(Logger.Tags.VM, "buildPrompt: userInput=${userInput.take(30)}...")
         val template = ChatTemplate.fromModelId(modelId)
@@ -481,7 +480,7 @@ class ChatViewModel @Inject constructor(
         systemContent.append("你可以使用以下工具来操控手机。当需要执行操作时，在回复中包含工具调用。\n")
         systemContent.append("格式：[ACTION:工具名]参数[/ACTION]\n\n")
         systemContent.append("可用工具：\n")
-        systemContent.append("- launch_app: 打开应用。参数为应用名或包名。例：[ACTION:launch_app]微信[/ACTION]\n")
+        systemContent.append("- launch_app: 打开应用，参数为应用名（桌面显示的名字，如微信、抖音），系统会像人一样在桌面找到图标点击。例：[ACTION:launch_app]微信[/ACTION]\n")
         systemContent.append("- click_text: 点击屏幕上的文字。例：[ACTION:click_text]确定[/ACTION]\n")
         systemContent.append("- input_text: 输入文字。格式\"提示|内容\"，或直接输入内容。例：[ACTION:input_text]搜索|天气[/ACTION]\n")
         systemContent.append("- go_back: 返回。例：[ACTION:go_back][/ACTION]\n")
@@ -490,12 +489,11 @@ class ChatViewModel @Inject constructor(
         systemContent.append("- open_quick_settings: 打开快捷设置\n")
         systemContent.append("- open_recents: 打开最近任务\n")
         systemContent.append("- swipe_up/swipe_down/swipe_left/swipe_right: 滑动\n")
-        systemContent.append("- get_screen: 获取当前屏幕内容\n")
-        systemContent.append("- search_app: 搜索应用包名。例：[ACTION:search_app]微信[/ACTION]\n\n")
+        systemContent.append("- get_screen: 获取当前屏幕内容\n\n")
         systemContent.append("重要规则：\n")
         systemContent.append("1. 需要执行操作时才使用工具，纯对话不需要\n")
         systemContent.append("2. 调用工具前先用自然语言告诉用户你要做什么\n")
-        systemContent.append("3. 不确定包名时直接用中文名，系统会自动查找\n")
+        systemContent.append("3. launch_app参数用应用的中文名，就是桌面上显示的名字\n")
         systemContent.append("4. 一次可以调用多个工具，每个单独一行\n")
         systemContent.append("5. 看不到屏幕时先用get_screen查看\n")
         
@@ -637,18 +635,6 @@ class ChatViewModel @Inject constructor(
     /**
      * Clear prompt cache when switching conversations or resetting context.
      */
-
-    /**
-     * 初始化悬浮球组件，将 AI 引擎和 TTS 传入
-     */
-    fun initFloatingBallComponents() {
-        val floatingBall = FloatingBallService.getInstance() ?: return
-        floatingBall.initComponents(llamaEngine, deviceToolExecutor)
-        Logger.i(Logger.Tags.VM, "initFloatingBallComponents: done")
-    }
-    
-    fun isFloatingBallRunning(): Boolean = FloatingBallService.isRunning()
-    
     fun clearPromptCache() {
         Logger.d(Logger.Tags.VM, "clearPromptCache()")
         llamaEngine.clearPromptCache()
@@ -688,4 +674,3 @@ data class ChatUiState(
     val error: String? = null,
     val inputText: String = ""
 )
-
