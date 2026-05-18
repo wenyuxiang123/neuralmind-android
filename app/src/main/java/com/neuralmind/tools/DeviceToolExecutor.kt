@@ -1,7 +1,6 @@
 package com.neuralmind.tools
 
 import android.content.Context
-import android.content.pm.PackageManager
 import com.neuralmind.service.NeuralMindAccessibilityService
 import com.neuralmind.core.Logger
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,54 +25,6 @@ class DeviceToolExecutor @Inject constructor(
     companion object {
         private val ACTION_REGEX = Regex("""\[ACTION:(\w+)\](.*?)\[/ACTION\]""")
         private const val TAG = "DeviceToolExecutor"
-        
-        // 常见应用名 → 包名映射
-        private val APP_ALIASES = mapOf(
-            "微信" to "com.tencent.mm",
-            "qq" to "com.tencent.mobileqq",
-            "手机qq" to "com.tencent.mobileqq",
-            "支付宝" to "com.eg.android.AlipayGphone",
-            "淘宝" to "com.taobao.taobao",
-            "抖音" to "com.ss.android.ugc.aweme",
-            "扣子" to "com.ss.android.ugc.aweme",
-            "抖音火山版" to "com.ss.android.ugc.aweme.lite",
-            "快手" to "com.smile.gifmaker",
-            "微博" to "com.sina.weibo",
-            "小红书" to "com.xingin.xhs",
-            "番茄小说" to "com.dragon.read",
-            "哔哩哔哩" to "tv.danmaku.bili",
-            "b站" to "tv.danmaku.bili",
-            "百度" to "com.baidu.searchbox",
-            "百度地图" to "com.baidu.BaiduMap",
-            "高德地图" to "com.autonavi.minimap",
-            "美团" to "com.sankuai.meituan",
-            "饿了么" to "me.ele",
-            "大众点评" to "com.dianping.v1",
-            "京东" to "com.jingdong.app.mall",
-            "拼多多" to "com.xunmeng.pinduoduo",
-            "网易云音乐" to "com.netease.cloudmusic",
-            "qq音乐" to "com.tencent.qqmusic",
-            "酷狗音乐" to "com.kugou.android",
-            "今日头条" to "com.ss.android.article.news",
-            "知乎" to "com.zhihu.android",
-            "wps" to "cn.wps.moffice_eng",
-            "飞书" to "com.ss.android.lark",
-            "钉钉" to "com.alibaba.android.rimet",
-            "企业微信" to "com.tencent.wework",
-            "设置" to "com.android.settings",
-            "相机" to "com.android.camera",
-            "计算器" to "com.android.calculator2",
-            "时钟" to "com.android.deskclock",
-            "日历" to "com.android.calendar",
-            "电话" to "com.android.dialer",
-            "联系人" to "com.android.contacts",
-            "短信" to "com.android.messaging",
-            "文件管理" to "com.android.filemanager",
-            "浏览器" to "com.android.browser",
-            "应用商店" to "com.android.vending",
-            "喜马拉雅" to "com.ximalaya.ting.android",
-            "得到" to "com.luojilab.player",
-        )
     }
 
     /**
@@ -112,7 +63,7 @@ class DeviceToolExecutor @Inject constructor(
                 message = "无障碍服务未开启，请在设置中开启 NeuralMind 无障碍服务"
             )
         }
-
+        
         return when (call.name) {
             "launch_app" -> executeLaunchApp(service, call.params)
             "click_text" -> {
@@ -156,72 +107,61 @@ class DeviceToolExecutor @Inject constructor(
                     service.findAndInputText(parts[0].trim(), parts[1].trim())
                 } else {
                     // 尝试找到当前焦点的编辑框并输入
-                    val rootNode = service.rootInActiveWindow
-                    if (rootNode != null) {
-                        val focusNode = rootNode.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT)
-                        if (focusNode != null && focusNode.isEditable) {
-                            val r = service.inputText(focusNode, call.params)
-                            focusNode.recycle()
-                            rootNode.recycle()
-                            r
-                        } else {
-                            focusNode?.recycle()
-                            rootNode.recycle()
-                            service.findAndInputText("", call.params)
-                        }
-                    } else {
-                        false
-                    }
+                    service.inputText(call.params)
                 }
-                DeviceToolResult(result, if (result) "已输入: ${call.params}" else "未找到输入框")
+                DeviceToolResult(result, if (result) "已输入文字" else "未找到可输入的编辑框")
             }
             "go_back" -> {
-                val result = service.goBack()
-                DeviceToolResult(result, if (result) "已返回" else "返回失败")
+                service.goBack()
+                DeviceToolResult(true, "已返回")
             }
             "go_home" -> {
-                val result = service.goHome()
-                DeviceToolResult(result, if (result) "已返回主页" else "返回主页失败")
+                service.goHome()
+                DeviceToolResult(true, "已回到主页")
             }
             "open_notifications" -> {
-                val result = service.openNotifications()
-                DeviceToolResult(result, if (result) "已打开通知栏" else "打开通知栏失败")
+                service.openNotifications()
+                DeviceToolResult(true, "已打开通知栏")
             }
             "open_quick_settings" -> {
-                val result = service.openQuickSettings()
-                DeviceToolResult(result, if (result) "已打开快速设置" else "打开快速设置失败")
+                service.openQuickSettings()
+                DeviceToolResult(true, "已打开快捷设置")
             }
             "open_recents" -> {
-                val result = service.openRecents()
-                DeviceToolResult(result, if (result) "已打开最近任务" else "打开最近任务失败")
+                service.openRecents()
+                DeviceToolResult(true, "已打开最近任务")
             }
             "swipe_up" -> {
-                service.swipe(540, 1600, 540, 400, 500)
-                DeviceToolResult(true, "已向上滑动")
+                service.swipeUp()
+                DeviceToolResult(true, "已上滑")
             }
             "swipe_down" -> {
-                service.swipe(540, 400, 540, 1600, 500)
-                DeviceToolResult(true, "已向下滑动")
+                service.swipeDown()
+                DeviceToolResult(true, "已下滑")
             }
             "swipe_left" -> {
-                service.swipe(900, 1000, 200, 1000, 500)
-                DeviceToolResult(true, "已向左滑动")
+                service.swipeLeft()
+                DeviceToolResult(true, "已左滑")
             }
             "swipe_right" -> {
-                service.swipe(200, 1000, 900, 1000, 500)
-                DeviceToolResult(true, "已向右滑动")
+                service.swipeRight()
+                DeviceToolResult(true, "已右滑")
             }
             "get_screen" -> {
-                val summary = service.getScreenSummary()
-                DeviceToolResult(true, "获取屏幕摘要成功", data = summary)
+                val text = service.getScreenText()
+                val app = service.getCurrentApp()
+                val summary = buildString {
+                    if (app.isNotBlank()) append("当前应用: $app\n")
+                    append("屏幕内容: ${text.take(500)}")
+                }
+                DeviceToolResult(true, summary, summary)
             }
             "search_app" -> {
-                val packageName = resolveAppPackageName(call.params)
-                if (packageName != null) {
-                    DeviceToolResult(true, "找到应用: $packageName", data = packageName)
-                } else {
-                    DeviceToolResult(false, "未找到应用: ${call.params}")
-                }
+                // 搜索应用就是回到桌面查找
+                service.goHome()
+                Thread.sleep(500)
+                val found = service.clickByText(call.params, exactMatch = false)
+                DeviceToolResult(found, if (found) "找到并打开了: ${call.params}" else "未找到应用: ${call.params}")
             }
             else -> {
                 Logger.w(TAG, "Unknown tool: ${call.name}")
@@ -231,84 +171,37 @@ class DeviceToolExecutor @Inject constructor(
     }
 
     /**
-     * 启动应用，支持应用名或包名
+     * 像人一样操作：先回桌面，然后找应用图标点击
      */
-    private fun executeLaunchApp(service: NeuralMindAccessibilityService, nameOrPackage: String): DeviceToolResult {
-        var packageName = resolveAppPackageName(nameOrPackage)
+    private fun executeLaunchApp(service: NeuralMindAccessibilityService, appName: String): DeviceToolResult {
+        // 先回桌面
+        service.goHome()
+        Thread.sleep(500) // 等桌面加载
         
-        if (packageName == null) {
-            return DeviceToolResult(
-                success = false,
-                message = "未找到应用: $nameOrPackage。请确认应用名称或使用包名。"
-            )
+        // 尝试直接点击应用名
+        if (service.clickByText(appName, exactMatch = false)) {
+            Thread.sleep(300)
+            return DeviceToolResult(true, "已打开应用: $appName")
         }
         
-        var result = service.launchApp(packageName)
+        // 桌面没找到，上滑到应用抽屉再找
+        service.swipe(540, 1600, 540, 400, 500)
+        Thread.sleep(500)
         
-        // If the resolved package is not installed (e.g. wrong alias for this device),
-        // try searching installed apps by name as fallback
-        if (!result.success && result.message.contains("未安装")) {
-            val altPackage = searchInstalledApp(nameOrPackage)
-            if (altPackage != null && altPackage != packageName) {
-                Logger.d(TAG, "Alias package $packageName not found, trying installed app: $altPackage")
-                packageName = altPackage
-                result = service.launchApp(packageName)
-            }
+        if (service.clickByText(appName, exactMatch = false)) {
+            Thread.sleep(300)
+            return DeviceToolResult(true, "已打开应用: $appName")
         }
         
-        return DeviceToolResult(
-            success = result.success,
-            message = if (result.success) "已打开应用: $nameOrPackage" else "打开应用失败: $nameOrPackage - ${result.message}"
-        )
-    }
-
-    /**
-     * 解析应用名到包名
-     * 1. 先查常见应用别名表
-     * 2. 如果包含点号，认为是包名直接返回
-     * 3. 搜索已安装应用匹配名称
-     */
-    private fun resolveAppPackageName(name: String): String? {
-        // 1. 查别名表
-        APP_ALIASES[name.lowercase()]?.let { return it }
+        // 再上滑一次尝试
+        service.swipe(540, 1600, 540, 400, 500)
+        Thread.sleep(500)
         
-        // 2. 含点号，可能就是包名
-        if (name.contains(".")) return name
-        
-        // 3. 搜索已安装应用
-        return searchInstalledApp(name)
-    }
-
-    /**
-     * 在已安装应用中搜索匹配的应用
-     */
-    private fun searchInstalledApp(query: String): String? {
-        try {
-            val pm = context.packageManager
-            val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-            
-            // 精确匹配应用名
-            for (app in apps) {
-                val label = app.loadLabel(pm)?.toString() ?: continue
-                if (label.equals(query, ignoreCase = true)) {
-                    Logger.d(TAG, "Exact match: $label → ${app.packageName}")
-                    return app.packageName
-                }
-            }
-            
-            // 模糊匹配
-            for (app in apps) {
-                val label = app.loadLabel(pm)?.toString() ?: continue
-                if (label.contains(query, ignoreCase = true) || query.contains(label, ignoreCase = true)) {
-                    Logger.d(TAG, "Fuzzy match: $label → ${app.packageName}")
-                    return app.packageName
-                }
-            }
-        } catch (e: Exception) {
-            Logger.e(TAG, "searchInstalledApp failed", e)
+        if (service.clickByText(appName, exactMatch = false)) {
+            Thread.sleep(300)
+            return DeviceToolResult(true, "已打开应用: $appName")
         }
         
-        return null
+        return DeviceToolResult(false, "未找到应用: $appName，请在桌面上确认应用名称")
     }
 }
-
