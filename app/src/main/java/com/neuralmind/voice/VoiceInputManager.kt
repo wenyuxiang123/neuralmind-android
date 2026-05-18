@@ -7,6 +7,7 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import com.neuralmind.core.Logger
 import java.util.Locale
 
 /**
@@ -14,6 +15,10 @@ import java.util.Locale
  * 使用 Android 原生 SpeechRecognizer 实现语音输入功能
  */
 class VoiceInputManager(private val context: Context) {
+
+    companion object {
+        private const val TAG = "VoiceInputManager"
+    }
 
     interface VoiceCallback {
         fun onResult(text: String)           // 识别完成
@@ -42,7 +47,9 @@ class VoiceInputManager(private val context: Context) {
      * 检查语音识别是否可用
      */
     fun isAvailable(): Boolean {
-        return SpeechRecognizer.isRecognitionAvailable(context)
+        val available = SpeechRecognizer.isRecognitionAvailable(context)
+        Logger.d(TAG, "SpeechRecognizer available: $available")
+        return available
     }
 
     /**
@@ -56,13 +63,17 @@ class VoiceInputManager(private val context: Context) {
      * 开始语音监听
      */
     fun startListening() {
+        Logger.d(TAG, "startListening called, currentState: $currentState")
+
         // 如果已经在监听，先停止
         if (isListening()) {
+            Logger.d(TAG, "Already listening, stopping first")
             stopListening()
         }
 
         // 检查是否可用
         if (!isAvailable()) {
+            Logger.e(TAG, "Speech recognition not available")
             callback?.onError("当前设备不支持语音识别")
             return
         }
@@ -70,12 +81,21 @@ class VoiceInputManager(private val context: Context) {
         // 在主线程创建 SpeechRecognizer
         mainHandler.post {
             try {
+                Logger.d(TAG, "Creating SpeechRecognizer")
+
                 // 先销毁旧的 recognizer
                 speechRecognizer?.destroy()
                 speechRecognizer = null
 
                 // 创建新的 SpeechRecognizer
                 speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                if (speechRecognizer == null) {
+                    Logger.e(TAG, "Failed to create SpeechRecognizer")
+                    callback?.onError("无法创建语音识别器")
+                    return@post
+                }
+
+                Logger.d(TAG, "SpeechRecognizer created successfully")
                 speechRecognizer?.setRecognitionListener(recognitionListener)
 
                 // 设置 Intent
@@ -88,11 +108,14 @@ class VoiceInputManager(private val context: Context) {
                 }
 
                 // 启动监听
+                Logger.d(TAG, "Starting listening")
                 speechRecognizer?.startListening(intent)
                 currentState = State.LISTENING
                 callback?.onStateChanged(State.LISTENING)
+                Logger.d(TAG, "Listening started, state changed to LISTENING")
 
             } catch (e: Exception) {
+                Logger.e(TAG, "Exception in startListening: ${e.message}", e)
                 currentState = State.IDLE
                 callback?.onError("语音识别启动失败: ${e.message}")
                 callback?.onStateChanged(State.IDLE)
@@ -132,11 +155,13 @@ class VoiceInputManager(private val context: Context) {
      */
     private val recognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: android.os.Bundle?) {
+            Logger.d(TAG, "onReadyForSpeech")
             currentState = State.LISTENING
             callback?.onStateChanged(State.LISTENING)
         }
 
         override fun onBeginningOfSpeech() {
+            Logger.d(TAG, "onBeginningOfSpeech")
             currentState = State.LISTENING
         }
 
@@ -148,6 +173,7 @@ class VoiceInputManager(private val context: Context) {
         }
 
         override fun onEndOfSpeech() {
+            Logger.d(TAG, "onEndOfSpeech")
             currentState = State.PROCESSING
             callback?.onStateChanged(State.PROCESSING)
         }
@@ -165,14 +191,17 @@ class VoiceInputManager(private val context: Context) {
                 SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没有听到语音，请重试"
                 else -> "未知错误"
             }
+            Logger.e(TAG, "onError: $error - $errorMessage")
             currentState = State.IDLE
             callback?.onError(errorMessage)
             callback?.onStateChanged(State.IDLE)
         }
 
         override fun onResults(results: android.os.Bundle?) {
+            Logger.d(TAG, "onResults")
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             val result = matches?.firstOrNull() ?: ""
+            Logger.d(TAG, "Recognition result: $result")
             currentState = State.IDLE
             if (result.isNotEmpty()) {
                 callback?.onResult(result)
@@ -183,12 +212,14 @@ class VoiceInputManager(private val context: Context) {
         override fun onPartialResults(partialResults: android.os.Bundle?) {
             val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             val partial = matches?.firstOrNull() ?: ""
+            Logger.d(TAG, "Partial result: $partial")
             if (partial.isNotEmpty()) {
                 callback?.onPartialResult(partial)
             }
         }
 
         override fun onEvent(eventType: Int, params: android.os.Bundle?) {
+            Logger.d(TAG, "onEvent: $eventType")
         }
     }
 }

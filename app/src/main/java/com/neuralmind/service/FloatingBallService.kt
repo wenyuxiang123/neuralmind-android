@@ -1,11 +1,13 @@
 package com.neuralmind.service
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
@@ -224,7 +226,6 @@ class FloatingBallService : Service() {
             gravity = Gravity.CENTER
         }
         windowManager?.addView(panelView, params)
-        startListening()
     }
 
     private fun collapsePanel() {
@@ -241,6 +242,12 @@ class FloatingBallService : Service() {
 
     private fun startListening() {
         if (isListening) return
+        
+        if (checkCallingOrSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            updateStatus("请授予录音权限以使用语音功能")
+            return
+        }
+        
         isListening = true
         voiceInputManager?.startListening()
         updateStatus("正在聆听...")
