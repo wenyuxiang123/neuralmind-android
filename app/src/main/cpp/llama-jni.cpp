@@ -647,9 +647,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
     std::string generatedText;
     int nGenerated = 0;
     llama_token newToken = 0;
-    llama_token lastRepeatToken = LLAMA_TOKEN_NULL;
-    int repeatCount = 0;
-    const int MAX_REPEAT = 32;
     // Start timing for performance measurement
     auto startTime = std::chrono::high_resolution_clock::now();
     // Cap maxTokens by actual n_ctx to prevent decode failures
@@ -678,17 +675,6 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         if (llama_vocab_is_eog(vocab, newToken)) {
             LOGI("Streaming: generated EOS at token %d", nGenerated);
             break;
-        }
-        // Repetition detection
-        if (newToken == lastRepeatToken) {
-            repeatCount++;
-            if (repeatCount >= MAX_REPEAT) {
-                LOGI("Streaming: stopping on repetition at token %d", nGenerated);
-                break;
-            }
-        } else {
-            repeatCount = 1;
-            lastRepeatToken = newToken;
         }
 
         // Convert token to piece and output directly

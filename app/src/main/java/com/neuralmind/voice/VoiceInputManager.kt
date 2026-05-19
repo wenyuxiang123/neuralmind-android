@@ -1,12 +1,15 @@
 package com.neuralmind.voice
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import androidx.core.content.ContextCompat
 import com.neuralmind.core.Logger
 import java.util.Locale
 
@@ -75,6 +78,13 @@ class VoiceInputManager(private val context: Context) {
         if (!isAvailable()) {
             Logger.e(TAG, "Speech recognition not available")
             callback?.onError("当前设备不支持语音识别")
+            return
+        }
+
+        // 检查录音权限
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Logger.e(TAG, "RECORD_AUDIO permission not granted")
+            callback?.onError("请授予录音权限以使用语音功能")
             return
         }
 
