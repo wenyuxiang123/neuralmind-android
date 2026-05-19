@@ -671,11 +671,36 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         }
         // Sample next token
         newToken = llama_sampler_sample(smpl, engine->context, -1);
-        // NOTE: EOS detection disabled - let the model generate naturally
-        // if (llama_vocab_is_eog(vocab, newToken)) {
-        //     LOGI("Streaming: generated EOS at token %d", nGenerated);
-        //     break;
-        // }
+        // Check for EOS token
+        if (llama_vocab_is_eog(vocab, newToken)) {
+            LOGI("Streaming: generated EOS at token %d", nGenerated);
+            // Only stop if we've generated at least a minimal amount
+            if (nGenerated > 50) {
+                break;
+            }
+            // Otherwise continue generating a bit more
+        }
+        // Check for excessive repetition (prevent infinite loops)
+        const int MAX_REPEAT = 16;
+        if (nGenerated > MAX_REPEAT * 2) {
+            bool has_repetition = true;
+            // Check if last MAX_REPEAT tokens are same as previous MAX_REPEAT
+            if (generatedTokens.size() >= MAX_REPEAT * 2) {
+                for (int i = 0; i < MAX_REPEAT; i++) {
+                    if (generatedTokens[generatedTokens.size() - 1 - i] !=
+                        generatedTokens[generatedTokens.size() - 1 - i - MAX_REPEAT]) {
+                        has_repetition = false;
+                        break;
+                    }
+                }
+            } else {
+                has_repetition = false;
+            }
+            if (has_repetition) {
+                LOGI("Streaming: detected excessive repetition at token %d, stopping", nGenerated);
+                break;
+            }
+        }
 
         // Convert token to piece and output directly
         char tokenBuf[128] = {0};

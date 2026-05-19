@@ -494,10 +494,13 @@ class ChatViewModel @Inject constructor(
         systemContent.append("1. 当用户说\"打开\"或\"打开应用\"时，必须使用launch_app工具！\n")
         systemContent.append("   例如：用户说\"打开抖音\" → 必须输出：[ACTION:launch_app]抖音[/ACTION]\n")
         systemContent.append("   即使之前有过类似操作，也要重新调用工具！\n")
-        systemContent.append("2. 调用工具前先用自然语言告诉用户你要做什么\n")
-        systemContent.append("3. launch_app参数用应用的中文名，就是桌面上显示的名字\n")
-        systemContent.append("4. 一次可以调用多个工具，每个单独一行\n")
-        systemContent.append("5. 看不到屏幕时先用get_screen查看\n")
+        systemContent.append("2. 只调用完成任务所需的工具，不要调用多余的工具！\n")
+        systemContent.append("3. 每个工具只调用一次，不要重复调用相同的工具！\n")
+        systemContent.append("4. 调用工具前先用自然语言告诉用户你要做什么\n")
+        systemContent.append("5. launch_app参数用应用的中文名，就是桌面上显示的名字\n")
+        systemContent.append("6. 一次只调用1-2个工具，最多3个，不要调用更多！\n")
+        systemContent.append("7. 看不到屏幕时先用get_screen查看\n")
+        systemContent.append("8. 完成工具调用后，立即停止生成，不要继续输出任何内容！\n")
         
         // Format based on template
         when (template) {
