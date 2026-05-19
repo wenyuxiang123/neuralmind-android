@@ -481,11 +481,11 @@ Java_com_neuralmind_llama_LlamaJNI_generate(
         }
         // Sample next token
         newToken = llama_sampler_sample(smpl, engine->context, -1);
-        // Check for EOS
-        if (llama_vocab_is_eog(vocab, newToken)) {
-            LOGI("Generated EOS at token %d", nGenerated);
-            break;
-        }
+        // NOTE: EOS detection disabled - let the model generate naturally
+        // if (llama_vocab_is_eog(vocab, newToken)) {
+        //     LOGI("Generated EOS at token %d", nGenerated);
+        //     break;
+        // }
         // Convert token to piece
         char tokenBuf[128] = {0};
         int nWritten = llama_token_to_piece(
@@ -671,11 +671,11 @@ Java_com_neuralmind_llama_LlamaJNI_generateStream(
         }
         // Sample next token
         newToken = llama_sampler_sample(smpl, engine->context, -1);
-        // Check for EOS (handles qwen/llama3/phi-3.5 etc.)
-        if (llama_vocab_is_eog(vocab, newToken)) {
-            LOGI("Streaming: generated EOS at token %d", nGenerated);
-            break;
-        }
+        // NOTE: EOS detection disabled - let the model generate naturally
+        // if (llama_vocab_is_eog(vocab, newToken)) {
+        //     LOGI("Streaming: generated EOS at token %d", nGenerated);
+        //     break;
+        // }
 
         // Convert token to piece and output directly
         char tokenBuf[128] = {0};
