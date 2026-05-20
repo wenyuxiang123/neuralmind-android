@@ -463,19 +463,7 @@ class ChatViewModel @Inject constructor(
             systemContent.append(activeSkillPrompts)
         }
         
-        // Inject active memory context
-        val activeMemories = memoryRepository.getActiveMemoriesSnapshot()
-        if (activeMemories.isNotEmpty()) {
-            systemContent.append("\n\n【关于用户的记忆】\n")
-            val relevantMemories = activeMemories
-                .sortedByDescending { it.importance }
-                .take(5)
-            relevantMemories.forEach { memory ->
-                systemContent.append("- [${memory.layer.description}] ${memory.content}\n")
-            }
-        }
-        
-        // 注入设备工具定义
+        // 注入设备工具定义 - 放在记忆之前，确保工具调用规则优先
         systemContent.append("\n\n【设备操控工具】\n")
         systemContent.append("你可以使用以下工具来操控手机。当需要执行操作时，在回复中包含工具调用。\n")
         systemContent.append("格式：[ACTION:工具名]参数[/ACTION]\n\n")
@@ -490,18 +478,32 @@ class ChatViewModel @Inject constructor(
         systemContent.append("- open_recents: 打开最近任务\n")
         systemContent.append("- swipe_up/swipe_down/swipe_left/swipe_right: 滑动\n")
         systemContent.append("- get_screen: 获取当前屏幕内容\n\n")
-        systemContent.append("重要规则：\n")
-        systemContent.append("1. ⚠️ 当用户说\"打开\"、\"启动\"、\"运行\"应用时，**必须、强制、无条件**使用launch_app工具！\n")
-        systemContent.append("   例如：用户说\"打开抖音\" → 必须输出：我来帮你打开抖音应用。[ACTION:launch_app]抖音[/ACTION]\n")
-        systemContent.append("   即使记忆中显示之前打开过，也必须重新调用工具！\n")
-        systemContent.append("2. ⚠️ 工具调用是**强制性**的，不能跳过！\n")
-        systemContent.append("3. 只调用完成任务所需的工具，不要调用多余的工具！\n")
-        systemContent.append("4. 每个工具只调用一次，不要重复调用相同的工具！\n")
-        systemContent.append("5. 调用工具前先用自然语言告诉用户你要做什么\n")
-        systemContent.append("6. launch_app参数用应用的中文名，就是桌面上显示的名字\n")
-        systemContent.append("7. 一次只调用1-2个工具，最多3个，不要调用更多！\n")
-        systemContent.append("8. 看不到屏幕时先用get_screen查看\n")
-        systemContent.append("9. 完成工具调用后，立即停止生成，不要继续输出任何内容！\n")
+        systemContent.append("【工具调用强制规则】\n")
+        systemContent.append("=== ⚠️ 以下规则为强制性，必须严格遵守！===\n")
+        systemContent.append("规则1: 当用户说\"打开\"、\"启动\"、\"运行\"应用时，**必须、强制、无条件**使用launch_app工具！\n")
+        systemContent.append("       例如：用户说\"打开抖音\" → 必须输出：我来帮你打开抖音应用。[ACTION:launch_app]抖音[/ACTION]\n")
+        systemContent.append("       即使记忆中显示之前打开过，也必须重新调用工具！\n")
+        systemContent.append("规则2: 工具调用是**强制性**的，不能跳过！不允许假装调用工具或跳过工具直接回复！\n")
+        systemContent.append("规则3: 只调用完成任务所需的工具，不要调用多余的工具！\n")
+        systemContent.append("规则4: 每个工具只调用一次，不要重复调用相同的工具！\n")
+        systemContent.append("规则5: 调用工具前先用自然语言告诉用户你要做什么\n")
+        systemContent.append("规则6: launch_app参数用应用的中文名，就是桌面上显示的名字\n")
+        systemContent.append("规则7: 一次只调用1个工具，不要调用更多！\n")
+        systemContent.append("规则8: 完成工具调用后，立即停止生成，不要继续输出任何内容！\n")
+        systemContent.append("规则9: 记忆中的对话仅供参考，不能模仿记忆中的回复模式！必须遵守以上工具调用规则！\n")
+        
+        // Inject active memory context - 放在工具规则之后，确保规则优先
+        val activeMemories = memoryRepository.getActiveMemoriesSnapshot()
+        if (activeMemories.isNotEmpty()) {
+            systemContent.append("\n\n【关于用户的记忆（仅供参考）】\n")
+            val relevantMemories = activeMemories
+                .sortedByDescending { it.importance }
+                .take(5)
+            relevantMemories.forEach { memory ->
+                systemContent.append("- [${memory.layer.description}] ${memory.content}\n")
+            }
+            systemContent.append("\n⚠️ 注意：记忆中的对话仅供参考，不能作为回复模板！必须遵守工具调用规则！\n")
+        }
         
         // Format based on template
         when (template) {
