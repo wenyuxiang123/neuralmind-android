@@ -32,14 +32,11 @@ class ChatViewModel @Inject constructor(
     private val memoryRepository: MemoryRepository,
     private val skillRepository: SkillRepository,
     private val llamaEngine: LlamaEngine,
-    private val deviceToolExecutor: DeviceToolExecutor
+    private val deviceToolExecutor: DeviceToolExecutor,
+    private val memoryMonitor: MemoryMonitor
 ) : ViewModel() {
     
-    // Memory monitor for detecting high memory pressure
-    private val memoryMonitor = MemoryMonitor(context)
-    
     init {
-        // Start memory monitoring
         memoryMonitor.startMonitoring()
         Logger.i(Logger.Tags.VM, "ChatViewModel: memory monitoring started")
     }
@@ -224,10 +221,28 @@ class ChatViewModel @Inject constructor(
         val maxIterations = 3
         var iteration = 0
         var allDisplayText = ""
+        var originalAiResponse = ""
+        
+        memoryMonitor.startInferenceTimeout(60_000L)
         
         while (iteration < maxIterations) {
             iteration++
             var tempResponse = ""
+            
+            if (memoryMonitor.isInferenceTimeout()) {
+                Logger.w(Logger.Tags.VM, "Inference timeout detected, stopping generation")
+                chatRepository.sendMessage(
+                    conversationId = conversation.id,
+                    role = MessageRole.ASSISTANT,
+                    content = allDisplayText.ifBlank { "推理超时，请重试" },
+                    model = modelId
+                )
+                memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
+                _streamingMessage.value = null
+                _uiState.update { it.copy(isStreaming = false) }
+                memoryMonitor.stopInferenceTimeout()
+                return
+            }
             
             _streamingMessage.value = Message(
                 id = -1,
@@ -238,7 +253,6 @@ class ChatViewModel @Inject constructor(
                 model = modelId
             )
             
-            // 用 CompletableDeferred 等待生成完成
             val responseDeferred = CompletableDeferred<String>()
             
             llamaEngine.generate(
@@ -257,7 +271,6 @@ class ChatViewModel @Inject constructor(
                 }
             )
             
-            // 等待生成完成
             val response = try {
                 responseDeferred.await()
             } catch (e: Exception) {
@@ -270,37 +283,52 @@ class ChatViewModel @Inject constructor(
                 )
                 _streamingMessage.value = null
                 _uiState.update { it.copy(isStreaming = false) }
+                memoryMonitor.stopInferenceTimeout()
                 return
             }
             
-            // 解析工具调用
+            if (memoryMonitor.isInferenceTimeout()) {
+                Logger.w(Logger.Tags.VM, "Inference timeout after tool execution")
+                chatRepository.sendMessage(
+                    conversationId = conversation.id,
+                    role = MessageRole.ASSISTANT,
+                    content = allDisplayText.ifBlank { "推理超时，请重试" },
+                    model = modelId
+                )
+                memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
+                _streamingMessage.value = null
+                _uiState.update { it.copy(isStreaming = false) }
+                memoryMonitor.stopInferenceTimeout()
+                return
+            }
+            
             val (cleanText, toolCalls) = deviceToolExecutor.parseToolCalls(response)
             
             if (toolCalls.isEmpty()) {
-                // 没有工具调用，保存并结束
                 allDisplayText += cleanText
+                originalAiResponse += cleanText
                 chatRepository.sendMessage(
                     conversationId = conversation.id,
                     role = MessageRole.ASSISTANT,
                     content = allDisplayText,
                     model = modelId
                 )
-                memoryRepository.saveConversationSegment(userInput, allDisplayText, modelId)
+                memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
                 Logger.i(Logger.Tags.VM, "generateWithToolLoop: completed, ${allDisplayText.length} chars")
                 _streamingMessage.value = null
                 _uiState.update { it.copy(isStreaming = false) }
+                memoryMonitor.stopInferenceTimeout()
                 return
             }
             
-            // 有工具调用
             Logger.i(Logger.Tags.VM, "Found ${toolCalls.size} tool calls, executing...")
             
-            // 保存 AI 的文字部分
+            originalAiResponse += response
+            
             if (cleanText.isNotBlank()) {
                 allDisplayText += cleanText + "\n"
             }
             
-            // 执行工具
             val toolResults = StringBuilder()
             toolResults.append("[工具执行结果]\n")
             
@@ -317,18 +345,14 @@ class ChatViewModel @Inject constructor(
             
             allDisplayText += toolResults.toString()
             
-            // 更新流式消息
             _streamingMessage.value = _streamingMessage.value?.copy(content = allDisplayText)
             
-            // 构建下一轮 prompt
             val template = ChatTemplate.fromModelId(modelId)
             currentPrompt = buildToolResultPrompt(template, currentPrompt, response, toolResults.toString())
             
-            // 清除 KV 缓存，因为我们要发送新的 prompt
             llamaEngine.clearPromptCache()
         }
         
-        // 超过最大迭代次数，保存已有结果
         Logger.w(Logger.Tags.VM, "generateWithToolLoop: max iterations ($maxIterations) reached")
         chatRepository.sendMessage(
             conversationId = conversation.id,
@@ -336,8 +360,10 @@ class ChatViewModel @Inject constructor(
             content = allDisplayText,
             model = modelId
         )
+        memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
         _streamingMessage.value = null
         _uiState.update { it.copy(isStreaming = false) }
+        memoryMonitor.stopInferenceTimeout()
     }
     
     /**
