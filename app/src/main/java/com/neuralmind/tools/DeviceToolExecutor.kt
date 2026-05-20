@@ -33,13 +33,13 @@ class DeviceToolExecutor @Inject constructor(
      * @return Pair(清理后的文本, 工具调用列表)
      */
     fun parseToolCalls(text: String): Pair<String, List<DeviceToolCall>> {
-        val calls = mutableListOf<DeviceToolCall>()
+        val rawCalls = mutableListOf<DeviceToolCall>()
         var cleanText = text
         
         ACTION_REGEX.findAll(text).forEach { match ->
             val toolName = match.groupValues[1]
             val params = match.groupValues[2].trim()
-            calls.add(DeviceToolCall(toolName, params))
+            rawCalls.add(DeviceToolCall(toolName, params))
             Logger.d(TAG, "Parsed tool call: $toolName → $params")
         }
         
@@ -48,7 +48,61 @@ class DeviceToolExecutor @Inject constructor(
         // 清理多余空行
         cleanText = cleanText.replace(Regex("\n{3,}"), "\n\n").trim()
         
-        return Pair(cleanText, calls)
+        // 过滤和限制工具调用
+        val filteredCalls = filterAndLimitToolCalls(rawCalls)
+        
+        return Pair(cleanText, filteredCalls)
+    }
+    
+    /**
+     * 过滤和限制工具调用
+     * 1. 限制每次最多1个工具调用
+     * 2. 过滤参数无效的调用（如包含模板变量{}）
+     * 3. 过滤掉不必要的导航调用
+     */
+    private fun filterAndLimitToolCalls(calls: List<DeviceToolCall>): List<DeviceToolCall> {
+        val validCalls = mutableListOf<DeviceToolCall>()
+        
+        for (call in calls) {
+            // 检查工具名是否有效
+            val validTools = setOf(
+                "launch_app", "click_text", "input_text", "go_back", 
+                "go_home", "open_notifications", "open_quick_settings", 
+                "open_recents", "swipe_up", "swipe_down", "swipe_left", 
+                "swipe_right", "get_screen", "search_app", "click_at", 
+                "long_click"
+            )
+            
+            if (!validTools.contains(call.name)) {
+                Logger.w(TAG, "Invalid tool name: ${call.name}, skipping")
+                continue
+            }
+            
+            // 检查参数是否有效（不包含模板变量如 {app_name}）
+            if (call.params.contains("{") || call.params.contains("}")) {
+                Logger.w(TAG, "Invalid params with template variable: ${call.params}, skipping")
+                continue
+            }
+            
+            // 对于 launch_app，参数不能为空
+            if (call.name == "launch_app" && call.params.isBlank()) {
+                Logger.w(TAG, "launch_app requires app name, skipping")
+                continue
+            }
+            
+            validCalls.add(call)
+            
+            // 限制每次只执行1个工具调用
+            if (validCalls.size >= 1) {
+                break
+            }
+        }
+        
+        if (validCalls.size != calls.size) {
+            Logger.w(TAG, "Filtered tool calls: ${calls.size} → ${validCalls.size}")
+        }
+        
+        return validCalls
     }
 
     /**
