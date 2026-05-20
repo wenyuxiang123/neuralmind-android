@@ -287,6 +287,9 @@ class ChatViewModel @Inject constructor(
                 return
             }
             
+            // 添加调试日志：打印原始AI响应
+            Logger.d(Logger.Tags.VM, "Raw AI response (${response.length} chars):\n$response")
+            
             if (memoryMonitor.isInferenceTimeout()) {
                 Logger.w(Logger.Tags.VM, "Inference timeout after tool execution")
                 chatRepository.sendMessage(
@@ -303,6 +306,11 @@ class ChatViewModel @Inject constructor(
             }
             
             val (cleanText, toolCalls) = deviceToolExecutor.parseToolCalls(response)
+            Logger.d(Logger.Tags.VM, "Clean text: $cleanText")
+            Logger.d(Logger.Tags.VM, "Tool calls found: ${toolCalls.size}")
+            toolCalls.forEach { call ->
+                Logger.d(Logger.Tags.VM, "  - ${call.name}: '${call.params}'")
+            }
             
             if (toolCalls.isEmpty()) {
                 allDisplayText += cleanText

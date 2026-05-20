@@ -118,6 +118,8 @@ class MemoryMonitor @Inject constructor(
         }
     }
     
+    private var lastRecommendedModelId: String? = null
+    
     private fun recommendModel() {
         scope.launch {
             try {
@@ -130,10 +132,14 @@ class MemoryMonitor @Inject constructor(
                     .maxByOrNull { it.parameters }
                     ?: models.firstOrNull { it.isInstalled }
                 
+                val previousModel = _recommendedModel.value
+                
                 _recommendedModel.value = recommended
                 
-                if (recommended != null) {
+                // 只在推荐模型变化时才输出日志
+                if (recommended != null && recommended.id != lastRecommendedModelId) {
                     Logger.d(Logger.Tags.VM, "Recommended model: ${recommended.name} (${memoryMB}MB available)")
+                    lastRecommendedModelId = recommended.id
                 }
             } catch (e: Exception) {
                 Logger.e(Logger.Tags.VM, "recommendModel failed", e)
