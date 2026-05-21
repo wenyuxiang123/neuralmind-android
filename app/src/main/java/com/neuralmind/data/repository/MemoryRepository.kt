@@ -30,10 +30,6 @@ class MemoryRepository @Inject constructor(
         }
     }
     
-    /**
-     * Get a snapshot of currently active memories (non-Flow, immediate value).
-     * Used for injecting memory context into prompt at inference time.
-     */
     suspend fun getActiveMemoriesSnapshot(): List<Memory> {
         Logger.d(Logger.Tags.REPO, "getActiveMemoriesSnapshot() called")
         return memoryDao.getAllActiveMemories().first().map { it.toDomain() }
@@ -101,11 +97,6 @@ class MemoryRepository @Inject constructor(
         }
     }
     
-    suspend fun deleteMemory(memory: Memory) {
-        Logger.d(Logger.Tags.REPO, "deleteMemory(memory=${memory.id})")
-        deleteMemory(memory.id)
-    }
-    
     suspend fun setActive(memoryId: Long, isActive: Boolean) {
         Logger.d(Logger.Tags.REPO, "setActive(memoryId=$memoryId, isActive=$isActive)")
         try {
@@ -130,10 +121,12 @@ class MemoryRepository @Inject constructor(
         }
     }
 
-    /**
-     * Save a conversation segment (user message + AI response) to L1/L2/L3 memory layers.
-     * Called after each conversation turn completes.
-     */
+    private val dialogueLayers = listOf(
+        MemoryLayer.L1_WORKING to 5,
+        MemoryLayer.L2_SHORT_TERM to 4,
+        MemoryLayer.L3_SESSION to 3
+    )
+    
     suspend fun saveConversationSegment(userContent: String, aiContent: String, modelId: String) {
         Logger.d(Logger.Tags.REPO, "saveConversationSegment: user=${userContent.take(20)}..., modelId=$modelId")
         try {
@@ -143,29 +136,14 @@ class MemoryRepository @Inject constructor(
                 "用户: $userContent\nAI: $aiContent"
             }
             
-            // L1: Working memory (current dialogue context), importance = 5
-            addMemory(Memory(
-                layer = MemoryLayer.L1_WORKING,
-                content = truncatedContent,
-                category = "对话",
-                importance = 5
-            ))
-            
-            // L2: Short-term memory (recent dialogue records), importance = 4
-            addMemory(Memory(
-                layer = MemoryLayer.L2_SHORT_TERM,
-                content = truncatedContent,
-                category = "对话",
-                importance = 4
-            ))
-            
-            // L3: Session memory (this session complete record), importance = 3
-            addMemory(Memory(
-                layer = MemoryLayer.L3_SESSION,
-                content = truncatedContent,
-                category = "对话",
-                importance = 3
-            ))
+            dialogueLayers.forEach { (layer, importance) ->
+                addMemory(Memory(
+                    layer = layer,
+                    content = truncatedContent,
+                    category = "对话",
+                    importance = importance
+                ))
+            }
             
             Logger.i(Logger.Tags.REPO, "saveConversationSegment success: saved to L1/L2/L3 layers")
         } catch (e: Exception) {
@@ -173,10 +151,6 @@ class MemoryRepository @Inject constructor(
         }
     }
     
-    /**
-     * Clear all memories from a specific layer.
-     * Used for memory pressure handling to free up memory.
-     */
     suspend fun clearLayerMemories(layer: MemoryLayer) {
         try {
             val entities = memoryDao.getMemoriesByLayer(layer.name).first()
@@ -187,12 +161,6 @@ class MemoryRepository @Inject constructor(
         }
     }
     
-
-    
-    /**
-     * Activate memory layers based on user input and automatically save user info as memories.
-     * This enables the memory system to learn from user conversations.
-     */
     suspend fun activateMemoryFromUserInput(input: String) {
         Logger.d(Logger.Tags.REPO, "activateMemoryFromUserInput(input=${input.take(50)}...)")
         try {
@@ -212,9 +180,7 @@ class MemoryRepository @Inject constructor(
                 }
             }
             
-            activateMemoryLayer(MemoryLayer.L1_WORKING)
-            activateMemoryLayer(MemoryLayer.L2_SHORT_TERM)
-            activateMemoryLayer(MemoryLayer.L3_SESSION)
+            dialogueLayers.forEach { (layer, _) -> activateMemoryLayer(layer) }
             
             Logger.i(Logger.Tags.REPO, "activateMemoryFromUserInput completed")
         } catch (e: Exception) {
@@ -222,40 +188,24 @@ class MemoryRepository @Inject constructor(
         }
     }
     
-    /**
-     * Check if the input is a request/intent rather than a preference statement.
-     * Requests like "我想写文章" should NOT be stored as preferences.
-     */
     private fun isRequestIntent(input: String, pattern: String): Boolean {
-        // Check if pattern is followed by action verbs + content
         val actionVerbs = listOf("写", "做", "要", "看", "去", "吃", "买", "玩", "听", "学", "了解", "知道", "搜索", "查询", "获取", "下载", "打开", "启动", "运行")
         val patternIndex = input.indexOf(pattern, ignoreCase = true)
         if (patternIndex < 0) return false
         
         val afterPattern = input.substring(patternIndex + pattern.length)
-        // If followed by action verb and substantial content (>10 chars), likely a request
         if (afterPattern.isNotEmpty()) {
             val trimmed = afterPattern.trim()
             if (trimmed.isNotEmpty() && trimmed.length > 3) {
-                // Check if starts with an action verb
                 val startsWithAction = actionVerbs.any { trimmed.startsWith(it) }
-                if (startsWithAction && trimmed.length > 10) {
-                    return true
-                }
-                // Also check for common request patterns like "我想XXX一下", "我想XXX一点"
-                if (trimmed.contains(Regex("(一下|一点|一下的|帮我|给我|你能|你可以)")) && trimmed.length > 10) {
-                    return true
-                }
+                if (startsWithAction && trimmed.length > 10) return true
+                if (trimmed.contains(Regex("(一下|一点|一下的|帮我|给我|你能|你可以)")) && trimmed.length > 10) return true
             }
         }
         return false
     }
     
-    /**
-     * Check if extracted content is too short (low information density).
-     */
     private fun isLowInfoDensity(content: String): Boolean {
-        // Filter out very short content (< 3 chars after trim)
         val trimmed = content.trim()
         if (trimmed.length < 3) {
             Logger.d(Logger.Tags.REPO, "isLowInfoDensity: rejecting short content '${trimmed}'")
@@ -264,145 +214,80 @@ class MemoryRepository @Inject constructor(
         return false
     }
     
-    /**
-     * Automatically save user information from input as memories.
-     * Extracts structured information based on memory layer context.
-     * FIX: Better filtering to avoid storing requests as preferences.
-     */
     private suspend fun saveUserInfoFromInput(input: String, layer: MemoryLayer) {
         try {
             when (layer) {
                 MemoryLayer.L5_PERSONAL -> {
-                    // Extract name from patterns like "我叫XXX", "我的名字是XXX"
                     val namePatterns = listOf("我叫", "我的名字是", "我是")
                     for (pattern in namePatterns) {
                         if (input.contains(pattern)) {
                             val start = input.indexOf(pattern) + pattern.length
                             val content = input.substring(start).take(20).trim()
                             if (content.isNotEmpty() && content.length > 1) {
-                                addMemory(Memory(
-                                    layer = layer,
-                                    content = "用户名字: $content",
-                                    category = "个人信息",
-                                    importance = 9
-                                ))
+                                addMemory(Memory(layer = layer, content = "用户名字: $content", category = "个人信息", importance = 9))
                             }
                             break
                         }
                     }
                 }
                 MemoryLayer.L6_PREFERENCE -> {
-                    // Save preference-related content
-                    // FIX: Only save as preference if it's NOT a request intent
-                    val prefPatterns = listOf("我喜欢", "我偏好")
-                    for (pattern in prefPatterns) {
+                    val allPreferencePatterns = listOf("我喜欢", "我偏好", "我想要", "我偏向")
+                    for (pattern in allPreferencePatterns) {
                         if (input.contains(pattern)) {
-                            // Skip if it's a request like "我想写文章"
                             if (pattern == "我想" && isRequestIntent(input, pattern)) {
                                 Logger.d(Logger.Tags.REPO, "saveUserInfoFromInput: skipping request intent for '我想'")
                                 continue
                             }
                             val start = input.indexOf(pattern) + pattern.length
                             val content = input.substring(start).take(50).trim()
-                            // Only save if meaningful content
                             if (content.isNotEmpty() && !isLowInfoDensity(content)) {
-                                addMemory(Memory(
-                                    layer = layer,
-                                    content = "用户偏好: $content",
-                                    category = "偏好",
-                                    importance = 7
-                                ))
-                            }
-                            break
-                        }
-                    }
-                    // Also check "我想要" patterns
-                    val wantPatterns = listOf("我想要", "我偏向")
-                    for (pattern in wantPatterns) {
-                        if (input.contains(pattern)) {
-                            if (isRequestIntent(input, pattern)) {
-                                continue
-                            }
-                            val start = input.indexOf(pattern) + pattern.length
-                            val content = input.substring(start).take(50).trim()
-                            if (content.isNotEmpty() && !isLowInfoDensity(content)) {
-                                addMemory(Memory(
-                                    layer = layer,
-                                    content = "用户偏好: $content",
-                                    category = "偏好",
-                                    importance = 7
-                                ))
+                                addMemory(Memory(layer = layer, content = "用户偏好: $content", category = "偏好", importance = 7))
                             }
                             break
                         }
                     }
                 }
                 MemoryLayer.L7_KNOWLEDGE -> {
-                    // Save knowledge from user input
                     val learnPatterns = listOf("记住", "学习", "掌握", "了解")
                     for (pattern in learnPatterns) {
                         if (input.contains(pattern)) {
-                            // Extract the content after the keyword
                             val cleanInput = input.replace(pattern, "", ignoreCase = true).trim()
                             if (cleanInput.isNotEmpty() && !isLowInfoDensity(cleanInput)) {
-                                addMemory(Memory(
-                                    layer = layer,
-                                    content = cleanInput.take(100),
-                                    category = "知识",
-                                    importance = 7
-                                ))
+                                addMemory(Memory(layer = layer, content = cleanInput.take(100), category = "知识", importance = 7))
                             }
                             break
                         }
                     }
                 }
                 MemoryLayer.L8_HABIT -> {
-                    // Save habit patterns
                     val habitPatterns = listOf("习惯", "总是", "通常")
                     for (pattern in habitPatterns) {
                         if (input.contains(pattern)) {
                             val cleanInput = input.replace(pattern, "", ignoreCase = true).trim()
                             if (cleanInput.isNotEmpty() && !isLowInfoDensity(cleanInput)) {
-                                addMemory(Memory(
-                                    layer = layer,
-                                    content = "用户习惯: $cleanInput",
-                                    category = "习惯",
-                                    importance = 6
-                                ))
+                                addMemory(Memory(layer = layer, content = "用户习惯: $cleanInput", category = "习惯", importance = 6))
                             }
                             break
                         }
                     }
                 }
                 MemoryLayer.L9_DEEP -> {
-                    // Save deep goals and aspirations
                     val goalPatterns = listOf("目标", "梦想", "想要", "我希望")
                     for (pattern in goalPatterns) {
                         if (input.contains(pattern)) {
                             val cleanInput = input.replace(pattern, "", ignoreCase = true).trim()
                             if (cleanInput.isNotEmpty() && !isLowInfoDensity(cleanInput)) {
-                                addMemory(Memory(
-                                    layer = layer,
-                                    content = "用户目标: $cleanInput",
-                                    category = "目标",
-                                    importance = 8
-                                ))
+                                addMemory(Memory(layer = layer, content = "用户目标: $cleanInput", category = "目标", importance = 8))
                             }
                             break
                         }
                     }
                 }
                 else -> {
-                    // For other layers, save general context
                     if (input.length in 10..200) {
                         val trimmed = input.trim()
                         if (!isLowInfoDensity(trimmed)) {
-                            addMemory(Memory(
-                                layer = layer,
-                                content = trimmed.take(100),
-                                category = "上下文",
-                                importance = 5
-                            ))
+                            addMemory(Memory(layer = layer, content = trimmed.take(100), category = "上下文", importance = 5))
                         }
                     }
                 }
@@ -421,36 +306,11 @@ class MemoryRepository @Inject constructor(
             }
             
             val defaultMemories = listOf(
-                Memory(
-                    layer = MemoryLayer.L7_KNOWLEDGE,
-                    content = "NeuralMind 是一个本地运行的 AI 助手，所有推理都在设备上进行",
-                    category = "系统",
-                    importance = 10
-                ),
-                Memory(
-                    layer = MemoryLayer.L7_KNOWLEDGE,
-                    content = "支持九层记忆系统，包括工作记忆、短期记忆、会话记忆等",
-                    category = "功能",
-                    importance = 9
-                ),
-                Memory(
-                    layer = MemoryLayer.L7_KNOWLEDGE,
-                    content = "拥有技能模块、设备控制、工具包等多种功能",
-                    category = "功能",
-                    importance = 9
-                ),
-                Memory(
-                    layer = MemoryLayer.L6_PREFERENCE,
-                    content = "用户喜欢简洁高效的界面设计",
-                    category = "UI偏好",
-                    importance = 7
-                ),
-                Memory(
-                    layer = MemoryLayer.L5_PERSONAL,
-                    content = "您是 NeuralMind 的用户，欢迎使用！",
-                    category = "基本信息",
-                    importance = 8
-                )
+                Memory(layer = MemoryLayer.L7_KNOWLEDGE, content = "NeuralMind 是一个本地运行的 AI 助手，所有推理都在设备上进行", category = "系统", importance = 10),
+                Memory(layer = MemoryLayer.L7_KNOWLEDGE, content = "支持九层记忆系统，包括工作记忆、短期记忆、会话记忆等", category = "功能", importance = 9),
+                Memory(layer = MemoryLayer.L7_KNOWLEDGE, content = "拥有技能模块、设备控制、工具包等多种功能", category = "功能", importance = 9),
+                Memory(layer = MemoryLayer.L6_PREFERENCE, content = "用户喜欢简洁高效的界面设计", category = "UI偏好", importance = 7),
+                Memory(layer = MemoryLayer.L5_PERSONAL, content = "您是 NeuralMind 的用户，欢迎使用！", category = "基本信息", importance = 8)
             )
             
             defaultMemories.forEach { addMemory(it) }
@@ -475,4 +335,3 @@ class MemoryRepository @Inject constructor(
         )
     }
 }
-

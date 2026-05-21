@@ -62,14 +62,10 @@ class ChatViewModel @Inject constructor(
     private val _streamingMessage = MutableStateFlow<Message?>(null)
     val streamingMessage: StateFlow<Message?> = _streamingMessage
     
-    // Error event channel for UI to collect
     private val _errorEvent = Channel<String>(Channel.BUFFERED)
     val errorEvent = _errorEvent.receiveAsFlow()
     
-    // Reserve tokens for generation output
     private val reservedOutputTokens = 512
-    // Dynamic token budget using actual n_ctx from C++ engine
-    // 512 reserved = safer margin for estimation error + generation space
     private val tokenBudget: Int
         get() = llamaEngine.getNctx() - reservedOutputTokens
     
@@ -134,7 +130,6 @@ class ChatViewModel @Inject constructor(
                 
                 _uiState.update { it.copy(isLoading = false, isStreaming = true) }
                 
-                // Get context messages WITHOUT the current user message (we'll add it separately)
                 val contextMessages = _messages.value.dropLast(1).takeLast(10)
                 generateAIResponse(conversation, content, contextMessages)
             } catch (e: Exception) {
@@ -167,7 +162,6 @@ class ChatViewModel @Inject constructor(
             Logger.d(Logger.Tags.VM, "generateAIResponse: model already loaded")
             true
         } else {
-            // Try currentModel first, fallback to conversation's model
             val targetModelId = modelRepository.currentModel.value?.id ?: modelId
             if (targetModelId.isNotEmpty()) {
                 Logger.d(Logger.Tags.VM, "generateAIResponse: loading model $targetModelId")
@@ -181,7 +175,6 @@ class ChatViewModel @Inject constructor(
         if (modelLoaded) {
             Logger.d(Logger.Tags.VM, "generateAIResponse: model loaded, starting inference")
             
-            // Check memory pressure before inference
             if (memoryMonitor.isMemoryPressure()) {
                 Logger.w(Logger.Tags.VM, "Memory pressure detected (${memoryMonitor.getMemoryUsagePercent().toInt()}%), clearing KV cache and L1 memories")
                 llamaEngine.clearKvRange()
@@ -189,8 +182,6 @@ class ChatViewModel @Inject constructor(
             }
             
             val prompt = buildPrompt(userInput, contextMessages, modelId)
-            
-            // 使用带工具执行循环的生成
             generateWithToolLoop(conversation, prompt, modelId, userInput)
         } else {
             Logger.w(Logger.Tags.VM, "generateAIResponse: model not loaded, sending fallback response")
@@ -207,10 +198,47 @@ class ChatViewModel @Inject constructor(
         }
     }
     
-    /**
-     * 带工具执行循环的 AI 生成
-     * 最多执行 MAX_TOOL_ITERATIONS 轮工具调用
-     */
+    private suspend fun handleTimeout(
+        conversation: Conversation,
+        modelId: String,
+        userInput: String,
+        allDisplayText: String,
+        originalAiResponse: String,
+        reason: String
+    ) {
+        Logger.w(Logger.Tags.VM, "handleTimeout: $reason")
+        chatRepository.sendMessage(
+            conversationId = conversation.id,
+            role = MessageRole.ASSISTANT,
+            content = allDisplayText.ifBlank { "推理超时，请重试" },
+            model = modelId
+        )
+        memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
+        _streamingMessage.value = null
+        _uiState.update { it.copy(isStreaming = false) }
+        memoryMonitor.stopInferenceTimeout()
+    }
+    
+    private suspend fun finalizeResponse(
+        conversation: Conversation,
+        modelId: String,
+        userInput: String,
+        allDisplayText: String,
+        originalAiResponse: String
+    ) {
+        chatRepository.sendMessage(
+            conversationId = conversation.id,
+            role = MessageRole.ASSISTANT,
+            content = allDisplayText,
+            model = modelId
+        )
+        memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
+        Logger.i(Logger.Tags.VM, "generateWithToolLoop: completed, ${allDisplayText.length} chars")
+        _streamingMessage.value = null
+        _uiState.update { it.copy(isStreaming = false) }
+        memoryMonitor.stopInferenceTimeout()
+    }
+    
     private suspend fun generateWithToolLoop(
         conversation: Conversation,
         initialPrompt: String,
@@ -230,17 +258,7 @@ class ChatViewModel @Inject constructor(
             var tempResponse = ""
             
             if (memoryMonitor.isInferenceTimeout()) {
-                Logger.w(Logger.Tags.VM, "Inference timeout detected, stopping generation")
-                chatRepository.sendMessage(
-                    conversationId = conversation.id,
-                    role = MessageRole.ASSISTANT,
-                    content = allDisplayText.ifBlank { "推理超时，请重试" },
-                    model = modelId
-                )
-                memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
-                _streamingMessage.value = null
-                _uiState.update { it.copy(isStreaming = false) }
-                memoryMonitor.stopInferenceTimeout()
+                handleTimeout(conversation, modelId, userInput, allDisplayText, originalAiResponse, "stopping generation")
                 return
             }
             
@@ -287,45 +305,17 @@ class ChatViewModel @Inject constructor(
                 return
             }
             
-            // 添加调试日志：打印原始AI响应
-            Logger.d(Logger.Tags.VM, "Raw AI response (${response.length} chars):\n$response")
-            
             if (memoryMonitor.isInferenceTimeout()) {
-                Logger.w(Logger.Tags.VM, "Inference timeout after tool execution")
-                chatRepository.sendMessage(
-                    conversationId = conversation.id,
-                    role = MessageRole.ASSISTANT,
-                    content = allDisplayText.ifBlank { "推理超时，请重试" },
-                    model = modelId
-                )
-                memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
-                _streamingMessage.value = null
-                _uiState.update { it.copy(isStreaming = false) }
-                memoryMonitor.stopInferenceTimeout()
+                handleTimeout(conversation, modelId, userInput, allDisplayText, originalAiResponse, "after tool execution")
                 return
             }
             
             val (cleanText, toolCalls) = deviceToolExecutor.parseToolCalls(response)
-            Logger.d(Logger.Tags.VM, "Clean text: $cleanText")
-            Logger.d(Logger.Tags.VM, "Tool calls found: ${toolCalls.size}")
-            toolCalls.forEach { call ->
-                Logger.d(Logger.Tags.VM, "  - ${call.name}: '${call.params}'")
-            }
             
             if (toolCalls.isEmpty()) {
                 allDisplayText += cleanText
                 originalAiResponse += cleanText
-                chatRepository.sendMessage(
-                    conversationId = conversation.id,
-                    role = MessageRole.ASSISTANT,
-                    content = allDisplayText,
-                    model = modelId
-                )
-                memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
-                Logger.i(Logger.Tags.VM, "generateWithToolLoop: completed, ${allDisplayText.length} chars")
-                _streamingMessage.value = null
-                _uiState.update { it.copy(isStreaming = false) }
-                memoryMonitor.stopInferenceTimeout()
+                finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
                 return
             }
             
@@ -362,21 +352,9 @@ class ChatViewModel @Inject constructor(
         }
         
         Logger.w(Logger.Tags.VM, "generateWithToolLoop: max iterations ($maxIterations) reached")
-        chatRepository.sendMessage(
-            conversationId = conversation.id,
-            role = MessageRole.ASSISTANT,
-            content = allDisplayText,
-            model = modelId
-        )
-        memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
-        _streamingMessage.value = null
-        _uiState.update { it.copy(isStreaming = false) }
-        memoryMonitor.stopInferenceTimeout()
+        finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
     }
     
-    /**
-     * 构建包含工具执行结果的 prompt，让 AI 继续对话
-     */
     private fun buildToolResultPrompt(
         template: ChatTemplate,
         originalPrompt: String,
@@ -384,89 +362,57 @@ class ChatViewModel @Inject constructor(
         toolResult: String
     ): String {
         val sb = StringBuilder()
-        
-        // 原始 prompt 中已经包含了历史对话和用户输入
-        // 我们需要追加 AI 的回复 + 工具结果 + 新的 assistant 前缀
         sb.append(originalPrompt)
+        sb.append(aiResponse)
         
-        // 追加 AI 的原始回复（包含工具调用）
-        when (template) {
+        return when (template) {
             ChatTemplate.CHATML -> {
-                sb.append(aiResponse)
-                sb.append("<|im_end|>\n")
-                // 工具结果作为 system 消息
-                sb.append("<|im_start|>system\n")
+                sb.append("<|im_end|>\n<|im_start|>system\n")
                 sb.append(toolResult)
-                sb.append("<|im_end|>\n")
-                sb.append("<|im_start|>assistant\n")
+                sb.append("<|im_end|>\n<|im_start|>assistant\n")
+                sb.toString()
             }
             ChatTemplate.LLAMA3 -> {
-                sb.append(aiResponse)
-                sb.append("<|eot_id|>")
-                // 工具结果作为 system 消息
-                sb.append("<|start_header_id|>system<|end_header_id|>\n\n")
+                sb.append("<|eot_id|><|start_header_id|>system<|end_header_id|>\n\n")
                 sb.append(toolResult)
-                sb.append("<|eot_id|>")
-                sb.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
+                sb.append("<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n")
+                sb.toString()
             }
             ChatTemplate.PHI -> {
-                sb.append(aiResponse)
-                sb.append("<|end|>\n")
-                sb.append("<|system|>\n")
+                sb.append("<|end|>\n<|system|>\n")
                 sb.append(toolResult)
-                sb.append("<|end|>\n")
-                sb.append("<|assistant|>\n")
-
+                sb.append("<|end|>\n<|assistant|>\n")
+                sb.toString()
             }
             ChatTemplate.GEMMA -> {
-                sb.append(aiResponse)
-                sb.append("<end_of_turn>\n")
-                sb.append("<start_of_turn>user\n")
+                sb.append("<end_of_turn>\n<start_of_turn>user\n")
                 sb.append(toolResult)
-                sb.append("<end_of_turn>\n")
-                sb.append("<start_of_turn>model\n")
+                sb.append("<end_of_turn>\n<start_of_turn>model\n")
+                sb.toString()
             }
             ChatTemplate.MISTRAL -> {
-                sb.append(aiResponse)
-                sb.append(" ")
-                sb.append("[INST] $toolResult [/INST]")
+                sb.append(" [INST] $toolResult [/INST]")
+                sb.toString()
             }
         }
-        
-        return sb.toString()
     }
     
-    /**
-     * Estimate token count from text.
-     * Chinese: ~1.5 tokens per character
-     * English: ~1 token per word (space-separated)
-     */
     private fun estimateTokenCount(text: String): Int {
-        // Conservative estimation to prevent prompt overflow
-        // CJK/special tokens: ~2 tokens each, ASCII: ~0.25 tokens each (4 chars/token)
         var cjkCount = 0
         var asciiCount = 0
         for (char in text) {
             if (char.code > 127) cjkCount++ else asciiCount++
         }
         val estimate = (cjkCount * 2 + asciiCount * 0.25).toInt().coerceAtLeast(1)
-        // Add 20% safety margin for template tokens and estimation error
         return (estimate * 1.2).toInt()
     }
     
-    /**
-     * Build prompt using ChatML format for LLM inference, with memory context and skill prompts injection.
-     * With token budget control to prevent context overflow.
-     * FIX: contextMessages does NOT include the current user message, we add it separately.
-     */    /**
-     * Chat template format for different model families.
-     */
     private enum class ChatTemplate(val id: String) {
-        CHATML("chatml"),       // Qwen2.5
-        LLAMA3("llama3"),       // Llama 3.x
-        PHI("phi"),             // Phi-3.5
-        GEMMA("gemma"),         // Gemma
-        MISTRAL("mistral");     // Mistral
+        CHATML("chatml"),
+        LLAMA3("llama3"),
+        PHI("phi"),
+        GEMMA("gemma"),
+        MISTRAL("mistral");
 
         companion object {
             fun fromModelId(modelId: String): ChatTemplate {
@@ -476,107 +422,36 @@ class ChatViewModel @Inject constructor(
                     modelId.startsWith("phi") -> PHI
                     modelId.startsWith("gemma") -> GEMMA
                     modelId.startsWith("mistral") -> MISTRAL
-                    else -> CHATML  // default fallback
+                    else -> CHATML
                 }
             }
         }
     }
-
+    
+    private fun formatMessage(template: ChatTemplate, role: String, content: String): String {
+        return when (template) {
+            ChatTemplate.CHATML -> "<|im_start|>$role\n$content<|im_end|>\n"
+            ChatTemplate.LLAMA3 -> "<|start_header_id|>$role<|end_header_id|>\n\n$content<|eot_id|>"
+            ChatTemplate.PHI -> "<|$role|>\n$content<|end|>\n"
+            ChatTemplate.GEMMA -> "<start_of_turn>${if (role == "assistant") "model" else role}\n$content<end_of_turn>\n"
+            ChatTemplate.MISTRAL -> if (role == "user") "[INST] $content [/INST]" else " $content"
+        }
+    }
+    
     private suspend fun buildPrompt(userInput: String, contextMessages: List<Message>, modelId: String): String {
         Logger.d(Logger.Tags.VM, "buildPrompt: userInput=${userInput.take(30)}...")
         val template = ChatTemplate.fromModelId(modelId)
         val sb = StringBuilder()
         
-        // System prompt content
-        val systemContent = StringBuilder()
-        systemContent.append("你是NeuralMind AI助手，一个运行在本地设备上的智能助手。")
+        val systemContent = buildSystemPrompt()
+        sb.append(formatMessage(template, "system", systemContent))
         
-        // Inject active skill prompts first
-        val activeSkillPrompts = try { skillRepository.getActiveSystemPrompts() } catch (e: Exception) { "" }
-        if (activeSkillPrompts.isNotBlank()) {
-            systemContent.append(activeSkillPrompts)
-        }
-        
-        // 注入设备工具定义 - 放在记忆之前，确保工具调用规则优先
-        systemContent.append("\n\n【设备操控工具】\n")
-        systemContent.append("你可以使用以下工具来操控手机。当需要执行操作时，在回复中包含工具调用。\n")
-        systemContent.append("格式：[ACTION:工具名]参数[/ACTION]\n\n")
-        systemContent.append("可用工具：\n")
-        systemContent.append("- launch_app: 打开应用，参数为应用名（桌面显示的名字，如微信、抖音），系统会像人一样在桌面找到图标点击。例：[ACTION:launch_app]微信[/ACTION]\n")
-        systemContent.append("- click_text: 点击屏幕上的文字。例：[ACTION:click_text]确定[/ACTION]\n")
-        systemContent.append("- input_text: 输入文字。格式\"提示|内容\"，或直接输入内容。例：[ACTION:input_text]搜索|天气[/ACTION]\n")
-        systemContent.append("- go_back: 返回。例：[ACTION:go_back][/ACTION]\n")
-        systemContent.append("- go_home: 回到主页。例：[ACTION:go_home][/ACTION]\n")
-        systemContent.append("- open_notifications: 打开通知栏\n")
-        systemContent.append("- open_quick_settings: 打开快捷设置\n")
-        systemContent.append("- open_recents: 打开最近任务\n")
-        systemContent.append("- swipe_up/swipe_down/swipe_left/swipe_right: 滑动\n")
-        systemContent.append("- get_screen: 获取当前屏幕内容\n\n")
-        systemContent.append("【工具调用强制规则】\n")
-        systemContent.append("=== ⚠️ 以下规则为强制性，必须严格遵守！===\n")
-        systemContent.append("规则1: 当用户说\"打开\"、\"启动\"、\"运行\"应用时，**必须、强制、无条件**使用launch_app工具！\n")
-        systemContent.append("       例如：用户说\"打开抖音\" → 必须输出：我来帮你打开抖音应用。[ACTION:launch_app]抖音[/ACTION]\n")
-        systemContent.append("       即使记忆中显示之前打开过，也必须重新调用工具！\n")
-        systemContent.append("规则2: 工具调用是**强制性**的，不能跳过！不允许假装调用工具或跳过工具直接回复！\n")
-        systemContent.append("规则3: 只调用完成任务所需的工具，不要调用多余的工具！\n")
-        systemContent.append("规则4: 每个工具只调用一次，不要重复调用相同的工具！\n")
-        systemContent.append("规则5: 调用工具前先用自然语言告诉用户你要做什么\n")
-        systemContent.append("规则6: launch_app参数用应用的中文名，就是桌面上显示的名字\n")
-        systemContent.append("规则7: 一次只调用1个工具，不要调用更多！\n")
-        systemContent.append("规则8: 完成工具调用后，立即停止生成，不要继续输出任何内容！\n")
-        systemContent.append("规则9: 记忆中的对话仅供参考，不能模仿记忆中的回复模式！必须遵守以上工具调用规则！\n")
-        
-        // Inject active memory context - 放在工具规则之后，确保规则优先
-        val activeMemories = memoryRepository.getActiveMemoriesSnapshot()
-        if (activeMemories.isNotEmpty()) {
-            systemContent.append("\n\n【关于用户的记忆（仅供参考）】\n")
-            val relevantMemories = activeMemories
-                .sortedByDescending { it.importance }
-                .take(5)
-            relevantMemories.forEach { memory ->
-                systemContent.append("- [${memory.layer.description}] ${memory.content}\n")
-            }
-            systemContent.append("\n⚠️ 注意：记忆中的对话仅供参考，不能作为回复模板！必须遵守工具调用规则！\n")
-        }
-        
-        // Format based on template
-        when (template) {
-            ChatTemplate.CHATML -> {
-                sb.append("<|im_start|>system\n")
-                sb.append(systemContent.toString())
-                sb.append("<|im_end|>\n")
-            }
-            ChatTemplate.LLAMA3 -> {
-                sb.append("<|start_header_id|>system<|end_header_id|>\n\n")
-                sb.append(systemContent.toString())
-                sb.append("<|eot_id|>")
-            }
-            ChatTemplate.PHI -> {
-                sb.append("<|system|>\n")
-                sb.append(systemContent.toString())
-                sb.append("<|end|>\n")
-            }
-            ChatTemplate.GEMMA -> {
-                sb.append("<start_of_turn>user\n")
-                // Gemma doesn't have a separate system role, prepend to first user message
-                sb.append(systemContent.toString())
-                sb.append("\n\n")
-            }
-            ChatTemplate.MISTRAL -> {
-                sb.append("[INST] ")
-                sb.append(systemContent.toString())
-                sb.append("\n\n")
-            }
-        }
-        
-        // Calculate token budget for context messages
         val systemPromptTokens = estimateTokenCount(sb.toString())
         val userInputTokens = estimateTokenCount(userInput)
         val remainingBudget = tokenBudget - systemPromptTokens - userInputTokens
         
         Logger.d(Logger.Tags.VM, "buildPrompt: template=$template, token budget=${tokenBudget}, system=${systemPromptTokens}, userInput=${userInputTokens}, remaining=${remainingBudget}")
         
-        // Context messages with token budget control
         var contextTokensUsed = 0
         val limitedContextMessages = contextMessages.takeLastWhile { msg ->
             val msgTokens = estimateTokenCount(msg.content)
@@ -590,93 +465,73 @@ class ChatViewModel @Inject constructor(
         }
         
         for (msg in limitedContextMessages) {
-            when (template) {
-                ChatTemplate.CHATML -> {
-                    val role = when (msg.role) {
-                        MessageRole.USER -> "user"
-                        MessageRole.ASSISTANT -> "assistant"
-                        MessageRole.SYSTEM -> "system"
-                    }
-                    sb.append("<|im_start|>$role\n")
-                    sb.append(msg.content)
-                    sb.append("<|im_end|>\n")
-                }
-                ChatTemplate.LLAMA3 -> {
-                    val role = when (msg.role) {
-                        MessageRole.USER -> "user"
-                        MessageRole.ASSISTANT -> "assistant"
-                        MessageRole.SYSTEM -> "system"
-                    }
-                    sb.append("<|start_header_id|>$role<|end_header_id|>\n\n")
-                    sb.append(msg.content)
-                    sb.append("<|eot_id|>")
-                }
-                ChatTemplate.PHI -> {
-                    val role = when (msg.role) {
-                        MessageRole.USER -> "user"
-                        MessageRole.ASSISTANT -> "assistant"
-                        MessageRole.SYSTEM -> "system"
-                    }
-                    sb.append("<|$role|>\n")
-                    sb.append(msg.content)
-                    sb.append("<|end|>\n")
-                }
-                ChatTemplate.GEMMA -> {
-                    val role = when (msg.role) {
-                        MessageRole.USER -> "user"
-                        MessageRole.ASSISTANT -> "model"
-                        MessageRole.SYSTEM -> "user"
-                    }
-                    sb.append("<start_of_turn>$role\n")
-                    sb.append(msg.content)
-                    sb.append("<end_of_turn>\n")
-                }
-                ChatTemplate.MISTRAL -> {
-                    if (msg.role == MessageRole.USER) {
-                        sb.append("[INST] ${msg.content} [/INST]")
-                    } else {
-                        sb.append(" ${msg.content}")
-                    }
-                }
+            val role = when (msg.role) {
+                MessageRole.USER -> "user"
+                MessageRole.ASSISTANT -> "assistant"
+                MessageRole.SYSTEM -> "system"
             }
+            sb.append(formatMessage(template, role, msg.content))
         }
         
-        // Current user input + assistant prefix
-        when (template) {
-            ChatTemplate.CHATML -> {
-                sb.append("<|im_start|>user\n")
-                sb.append(userInput)
-                sb.append("<|im_end|>\n")
-                sb.append("<|im_start|>assistant\n")
-            }
-            ChatTemplate.LLAMA3 -> {
-                sb.append("<|start_header_id|>user<|end_header_id|>\n\n")
-                sb.append(userInput)
-                sb.append("<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n")
-            }
-            ChatTemplate.PHI -> {
-                sb.append("<|user|>\n")
-                sb.append(userInput)
-                sb.append("<|end|>\n")
-                sb.append("<|assistant|>\n")
-            }
-            ChatTemplate.GEMMA -> {
-                sb.append("<start_of_turn>user\n")
-                sb.append(userInput)
-                sb.append("<end_of_turn>\n<start_of_turn>model\n")
-            }
-            ChatTemplate.MISTRAL -> {
-                sb.append("[INST] $userInput [/INST]")
-            }
-        }
+        sb.append(formatMessage(template, "user", userInput))
+        sb.append(formatMessage(template, "assistant", ""))
         
         Logger.d(Logger.Tags.VM, "buildPrompt: completed, template=$template, ${sb.length} chars, ~${estimateTokenCount(sb.toString())} tokens")
         return sb.toString()
     }
     
-    /**
-     * Clear prompt cache when switching conversations or resetting context.
-     */
+    private fun buildSystemPrompt(): String {
+        val sb = StringBuilder()
+        sb.append("你是NeuralMind AI助手，一个运行在本地设备上的智能助手。")
+        
+        val activeSkillPrompts = try { skillRepository.getActiveSystemPrompts() } catch (e: Exception) { "" }
+        if (activeSkillPrompts.isNotBlank()) {
+            sb.append(activeSkillPrompts)
+        }
+        
+        sb.append("\n\n【设备操控工具】\n")
+        sb.append("你可以使用以下工具来操控手机。当需要执行操作时，在回复中包含工具调用。\n")
+        sb.append("格式：[ACTION:工具名]参数[/ACTION]\n\n")
+        sb.append("可用工具：\n")
+        sb.append("- launch_app: 打开应用，参数为应用名（桌面显示的名字，如微信、抖音），系统会像人一样在桌面找到图标点击。例：[ACTION:launch_app]微信[/ACTION]\n")
+        sb.append("- click_text: 点击屏幕上的文字。例：[ACTION:click_text]确定[/ACTION]\n")
+        sb.append("- input_text: 输入文字。格式\"提示|内容\"，或直接输入内容。例：[ACTION:input_text]搜索|天气[/ACTION]\n")
+        sb.append("- go_back: 返回。例：[ACTION:go_back][/ACTION]\n")
+        sb.append("- go_home: 回到主页。例：[ACTION:go_home][/ACTION]\n")
+        sb.append("- open_notifications: 打开通知栏\n")
+        sb.append("- open_quick_settings: 打开快捷设置\n")
+        sb.append("- open_recents: 打开最近任务\n")
+        sb.append("- swipe_up/swipe_down/swipe_left/swipe_right: 滑动\n")
+        sb.append("- get_screen: 获取当前屏幕内容\n\n")
+        sb.append("【工具调用强制规则】\n")
+        sb.append("=== ⚠️ 以下规则为强制性，必须严格遵守！===\n")
+        sb.append("规则1: 当用户说\"打开\"、\"启动\"、\"运行\"应用时，**必须、强制、无条件**使用launch_app工具！\n")
+        sb.append("       例如：用户说\"打开抖音\" → 必须输出：我来帮你打开抖音应用。[ACTION:launch_app]抖音[/ACTION]\n")
+        sb.append("       即使记忆中显示之前打开过，也必须重新调用工具！\n")
+        sb.append("规则2: 工具调用是**强制性**的，不能跳过！不允许假装调用工具或跳过工具直接回复！\n")
+        sb.append("规则3: 只调用完成任务所需的工具，不要调用多余的工具！\n")
+        sb.append("规则4: 每个工具只调用一次，不要重复调用相同的工具！\n")
+        sb.append("规则5: 调用工具前先用自然语言告诉用户你要做什么\n")
+        sb.append("规则6: launch_app参数用应用的中文名，就是桌面上显示的名字\n")
+        sb.append("规则7: 一次只调用1个工具，不要调用更多！\n")
+        sb.append("规则8: 完成工具调用后，立即停止生成，不要继续输出任何内容！\n")
+        sb.append("规则9: 记忆中的对话仅供参考，不能模仿记忆中的回复模式！必须遵守以上工具调用规则！\n")
+        
+        val activeMemories = memoryRepository.getActiveMemoriesSnapshot()
+        if (activeMemories.isNotEmpty()) {
+            sb.append("\n\n【关于用户的记忆（仅供参考）】\n")
+            val relevantMemories = activeMemories
+                .sortedByDescending { it.importance }
+                .take(5)
+            relevantMemories.forEach { memory ->
+                sb.append("- [${memory.layer.description}] ${memory.content}\n")
+            }
+            sb.append("\n⚠️ 注意：记忆中的对话仅供参考，不能作为回复模板！必须遵守工具调用规则！\n")
+        }
+        
+        return sb.toString()
+    }
+    
     fun clearPromptCache() {
         Logger.d(Logger.Tags.VM, "clearPromptCache()")
         llamaEngine.clearPromptCache()
@@ -688,7 +543,6 @@ class ChatViewModel @Inject constructor(
             try {
                 modelRepository.switchModel(model.id)
                 llamaEngine.loadModel(model.id)
-                // Clear prompt cache when switching models (context is incompatible)
                 llamaEngine.clearPromptCache()
                 _currentConversation.value = _currentConversation.value?.copy(model = model.id)
                 Logger.i(Logger.Tags.VM, "selectModel success: ${model.name}")

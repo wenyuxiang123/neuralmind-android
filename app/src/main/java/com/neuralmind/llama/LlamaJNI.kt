@@ -65,7 +65,7 @@ class LlamaJNI {
         @JvmStatic
         external fun clearPromptCache(engineId: Long)
         @JvmStatic
-        external fun clearKvRange(ptr: Long, seqId: Int, startPos: Int, endPos: Int)
+        external fun clearKvRange(engineId: Long, seqId: Int, startPos: Int, endPos: Int)
 
 
         @JvmStatic
