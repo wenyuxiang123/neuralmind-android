@@ -36,6 +36,8 @@ class ChatViewModel @Inject constructor(
     private val memoryMonitor: MemoryMonitor
 ) : ViewModel() {
     
+    private var lastExecutedTools = mutableSetOf<String>()
+    
     init {
         memoryMonitor.startMonitoring()
         Logger.i(Logger.Tags.VM, "ChatViewModel: memory monitoring started")
@@ -250,8 +252,10 @@ class ChatViewModel @Inject constructor(
         Logger.d(Logger.Tags.VM, "generateWithToolLoop: userInput='${userInput.take(50)}...'")
         Logger.d(Logger.Tags.VM, "generateWithToolLoop: promptLength=${initialPrompt.length}, promptTokens=${estimateTokenCount(initialPrompt)}")
         
+        lastExecutedTools.clear()
+        
         var currentPrompt = initialPrompt
-        val maxIterations = 3
+        val maxIterations = 2
         var iteration = 0
         var allDisplayText = ""
         var originalAiResponse = ""
@@ -359,25 +363,37 @@ class ChatViewModel @Inject constructor(
             }
             
             val toolResults = StringBuilder()
-            toolResults.append("[工具执行结果]\n")
+            var hasNewToolExecution = false
             
             for (call in toolCalls) {
+                val toolKey = "${call.name}:${call.params}"
+                if (lastExecutedTools.contains(toolKey)) {
+                    Logger.w(Logger.Tags.VM, "Skipping duplicate tool execution: $toolKey")
+                    continue
+                }
+                
                 Logger.d(Logger.Tags.VM, "Executing tool: ${call.name} → ${call.params}")
                 val result = deviceToolExecutor.executeTool(call)
                 Logger.d(Logger.Tags.VM, "Tool result: success=${result.success}, msg=${result.message}")
                 
-                toolResults.append("- ${call.name}(${call.params}): ${result.message}\n")
-                if (result.data.isNotEmpty()) {
-                    toolResults.append("  数据: ${result.data.take(500)}\n")
-                }
+                lastExecutedTools.add(toolKey)
+                hasNewToolExecution = true
+                
+                toolResults.append("${call.name}(${call.params}): ${result.message}\n")
             }
             
             allDisplayText += toolResults.toString()
             
             _streamingMessage.value = _streamingMessage.value?.copy(content = allDisplayText)
             
+            if (!hasNewToolExecution) {
+                Logger.w(Logger.Tags.VM, "generateWithToolLoop: no new tool executions, ending loop")
+                finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
+                return
+            }
+            
             val template = ChatTemplate.fromModelId(modelId)
-            currentPrompt = buildToolResultPrompt(template, currentPrompt, response, toolResults.toString())
+            currentPrompt = buildToolResultPrompt(template, currentPrompt, cleanText, toolResults.toString())
             Logger.d(Logger.Tags.VM, "generateWithToolLoop: updated prompt for next iteration, length=${currentPrompt.length}")
             
             llamaEngine.clearPromptCache()
@@ -391,40 +407,47 @@ class ChatViewModel @Inject constructor(
     private fun buildToolResultPrompt(
         template: ChatTemplate,
         originalPrompt: String,
-        aiResponse: String,
+        cleanResponse: String,
         toolResult: String
     ): String {
         val sb = StringBuilder()
         sb.append(originalPrompt)
-        sb.append(aiResponse)
         
         return when (template) {
             ChatTemplate.CHATML -> {
-                sb.append("<|im_end|>\n<|im_start|>system\n")
+                sb.append("<|im_end|>\n<|im_start|>user\n")
+                sb.append("[Result] ")
                 sb.append(toolResult)
                 sb.append("<|im_end|>\n<|im_start|>assistant\n")
                 sb.toString()
             }
             ChatTemplate.LLAMA3 -> {
-                sb.append("<|eot_id|><|start_header_id|>system<|end_header_id|>\n\n")
+                sb.append("<|eot_id|>")
+                sb.append("<|start_header_id|>user<|end_header_id|>\n\n")
+                sb.append("[Result] ")
                 sb.append(toolResult)
-                sb.append("<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n")
+                sb.append("<|eot_id|>")
+                sb.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
                 sb.toString()
             }
             ChatTemplate.PHI -> {
-                sb.append("<|end|>\n<|system|>\n")
+                sb.append("<|end|>\n<|user|>\n")
+                sb.append("[Result] ")
                 sb.append(toolResult)
                 sb.append("<|end|>\n<|assistant|>\n")
                 sb.toString()
             }
             ChatTemplate.GEMMA -> {
                 sb.append("<end_of_turn>\n<start_of_turn>user\n")
+                sb.append("[Result] ")
                 sb.append(toolResult)
                 sb.append("<end_of_turn>\n<start_of_turn>model\n")
                 sb.toString()
             }
             ChatTemplate.MISTRAL -> {
-                sb.append(" [INST] $toolResult [/INST]")
+                sb.append("[/INST]\n[INST] [Result] ")
+                sb.append(toolResult)
+                sb.append(" [/INST]")
                 sb.toString()
             }
         }
