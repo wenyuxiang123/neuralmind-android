@@ -41,7 +41,7 @@ class DeviceToolExecutor @Inject constructor(
         private const val SWIPE_LEFT_X_START = 900
         private const val SWIPE_RIGHT_X_START = 200
         private const val SWIPE_Y = 1000
-        private const val SWIPE_DURATION = 500
+        private const val SWIPE_DURATION = 500L
         private const val HOME_WAIT_MS = 500L
         private const val APP_CLICK_WAIT_MS = 300L
     }

@@ -480,7 +480,7 @@ class ChatViewModel @Inject constructor(
         return sb.toString()
     }
     
-    private fun buildSystemPrompt(): String {
+    private suspend fun buildSystemPrompt(): String {
         val sb = StringBuilder()
         sb.append("你是NeuralMind AI助手，一个运行在本地设备上的智能助手。")
         
@@ -517,7 +517,7 @@ class ChatViewModel @Inject constructor(
         sb.append("规则8: 完成工具调用后，立即停止生成，不要继续输出任何内容！\n")
         sb.append("规则9: 记忆中的对话仅供参考，不能模仿记忆中的回复模式！必须遵守以上工具调用规则！\n")
         
-        val activeMemories = memoryRepository.getActiveMemoriesSnapshot()
+        val activeMemories = try { memoryRepository.getActiveMemoriesSnapshot() } catch (e: Exception) { emptyList() }
         if (activeMemories.isNotEmpty()) {
             sb.append("\n\n【关于用户的记忆（仅供参考）】\n")
             val relevantMemories = activeMemories
