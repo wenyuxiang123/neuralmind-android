@@ -88,31 +88,62 @@ class DeviceToolExecutor @Inject constructor(
     }
 
     fun executeTool(call: DeviceToolCall): DeviceToolResult {
+        Logger.i(TAG, "=== executeTool START ===")
+        Logger.d(TAG, "executeTool: name=${call.name}, params='${call.params}'")
+        
         val service = NeuralMindAccessibilityService.getInstance()
         
         if (service == null) {
+            Logger.e(TAG, "executeTool: Accessibility service not running")
             return DeviceToolResult(false, "无障碍服务未开启，请在设置中开启 NeuralMind 无障碍服务")
         }
         
-        return when (call.name) {
+        Logger.d(TAG, "executeTool: Accessibility service is running")
+        
+        val result = when (call.name) {
             "launch_app" -> executeLaunchApp(service, call.params)
             "click_text" -> executeClickText(service, call.params)
             "click_at" -> executeClickAt(service, call.params)
             "long_click" -> executeLongClick(service, call.params)
             "input_text" -> executeInputText(service, call.params)
-            "go_back" -> DeviceToolResult(true, "已返回").also { service.goBack() }
-            "go_home" -> DeviceToolResult(true, "已回到主页").also { service.goHome() }
-            "open_notifications" -> DeviceToolResult(true, "已打开通知栏").also { service.openNotifications() }
-            "open_quick_settings" -> DeviceToolResult(true, "已打开快捷设置").also { service.openQuickSettings() }
-            "open_recents" -> DeviceToolResult(true, "已打开最近任务").also { service.openRecents() }
-            "swipe_up" -> DeviceToolResult(true, "已向上滑动").also { service.swipe(CENTER_X, SCREEN_BOTTOM_Y, CENTER_X, SCREEN_TOP_Y, SWIPE_DURATION) }
-            "swipe_down" -> DeviceToolResult(true, "已向下滑动").also { service.swipe(CENTER_X, SCREEN_TOP_Y, CENTER_X, SCREEN_BOTTOM_Y, SWIPE_DURATION) }
-            "swipe_left" -> DeviceToolResult(true, "已向左滑动").also { service.swipe(SWIPE_LEFT_X_START, SWIPE_Y, SWIPE_RIGHT_X_START, SWIPE_Y, SWIPE_DURATION) }
-            "swipe_right" -> DeviceToolResult(true, "已向右滑动").also { service.swipe(SWIPE_RIGHT_X_START, SWIPE_Y, SWIPE_LEFT_X_START, SWIPE_Y, SWIPE_DURATION) }
+            "go_back" -> DeviceToolResult(true, "已返回").also { 
+                Logger.d(TAG, "executeTool: goBack()"); service.goBack() 
+            }
+            "go_home" -> DeviceToolResult(true, "已回到主页").also { 
+                Logger.d(TAG, "executeTool: goHome()"); service.goHome() 
+            }
+            "open_notifications" -> DeviceToolResult(true, "已打开通知栏").also { 
+                Logger.d(TAG, "executeTool: openNotifications()"); service.openNotifications() 
+            }
+            "open_quick_settings" -> DeviceToolResult(true, "已打开快捷设置").also { 
+                Logger.d(TAG, "executeTool: openQuickSettings()"); service.openQuickSettings() 
+            }
+            "open_recents" -> DeviceToolResult(true, "已打开最近任务").also { 
+                Logger.d(TAG, "executeTool: openRecents()"); service.openRecents() 
+            }
+            "swipe_up" -> DeviceToolResult(true, "已向上滑动").also { 
+                Logger.d(TAG, "executeTool: swipeUp()"); service.swipe(CENTER_X, SCREEN_BOTTOM_Y, CENTER_X, SCREEN_TOP_Y, SWIPE_DURATION) 
+            }
+            "swipe_down" -> DeviceToolResult(true, "已向下滑动").also { 
+                Logger.d(TAG, "executeTool: swipeDown()"); service.swipe(CENTER_X, SCREEN_TOP_Y, CENTER_X, SCREEN_BOTTOM_Y, SWIPE_DURATION) 
+            }
+            "swipe_left" -> DeviceToolResult(true, "已向左滑动").also { 
+                Logger.d(TAG, "executeTool: swipeLeft()"); service.swipe(SWIPE_LEFT_X_START, SWIPE_Y, SWIPE_RIGHT_X_START, SWIPE_Y, SWIPE_DURATION) 
+            }
+            "swipe_right" -> DeviceToolResult(true, "已向右滑动").also { 
+                Logger.d(TAG, "executeTool: swipeRight()"); service.swipe(SWIPE_RIGHT_X_START, SWIPE_Y, SWIPE_LEFT_X_START, SWIPE_Y, SWIPE_DURATION) 
+            }
             "get_screen" -> executeGetScreen(service)
             "search_app" -> executeSearchApp(service, call.params)
-            else -> DeviceToolResult(false, "未知工具: ${call.name}")
+            else -> {
+                Logger.w(TAG, "executeTool: Unknown tool name: ${call.name}")
+                DeviceToolResult(false, "未知工具: ${call.name}")
+            }
         }
+        
+        Logger.i(TAG, "executeTool result: success=${result.success}, msg=${result.message}")
+        Logger.i(TAG, "=== executeTool END ===")
+        return result
     }
     
     private fun executeClickText(service: NeuralMindAccessibilityService, params: String) =
@@ -174,23 +205,33 @@ class DeviceToolExecutor @Inject constructor(
     }
 
     private fun executeLaunchApp(service: NeuralMindAccessibilityService, appName: String): DeviceToolResult {
+        Logger.i(TAG, "=== executeLaunchApp START ===")
+        Logger.d(TAG, "executeLaunchApp: appName='$appName'")
+        
+        Logger.d(TAG, "executeLaunchApp: going home")
         service.goHome()
         Thread.sleep(HOME_WAIT_MS)
         
+        Logger.d(TAG, "executeLaunchApp: searching for app on home screen")
         if (service.clickByText(appName, exactMatch = false)) {
+            Logger.i(TAG, "executeLaunchApp: found and clicked app on home screen")
             Thread.sleep(APP_CLICK_WAIT_MS)
             return DeviceToolResult(true, "已打开应用: $appName")
         }
         
+        Logger.d(TAG, "executeLaunchApp: app not found on home screen, searching pages")
         for (i in 1..2) {
+            Logger.d(TAG, "executeLaunchApp: swiping to page $i")
             service.swipe(CENTER_X, SCREEN_BOTTOM_Y, CENTER_X, SCREEN_TOP_Y, SWIPE_DURATION)
             Thread.sleep(HOME_WAIT_MS)
             if (service.clickByText(appName, exactMatch = false)) {
+                Logger.i(TAG, "executeLaunchApp: found and clicked app on page $i")
                 Thread.sleep(APP_CLICK_WAIT_MS)
                 return DeviceToolResult(true, "已打开应用: $appName")
             }
         }
         
+        Logger.w(TAG, "executeLaunchApp: app not found after searching all pages")
         return DeviceToolResult(false, "未找到应用: $appName，请在桌面上确认应用名称")
     }
     

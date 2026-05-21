@@ -245,19 +245,28 @@ class ChatViewModel @Inject constructor(
         modelId: String,
         userInput: String
     ) {
+        Logger.i(Logger.Tags.VM, "=== generateWithToolLoop START ===")
+        Logger.d(Logger.Tags.VM, "generateWithToolLoop: conversationId=${conversation.id}, modelId=$modelId")
+        Logger.d(Logger.Tags.VM, "generateWithToolLoop: userInput='${userInput.take(50)}...'")
+        Logger.d(Logger.Tags.VM, "generateWithToolLoop: promptLength=${initialPrompt.length}, promptTokens=${estimateTokenCount(initialPrompt)}")
+        
         var currentPrompt = initialPrompt
         val maxIterations = 3
         var iteration = 0
         var allDisplayText = ""
         var originalAiResponse = ""
         
+        Logger.d(Logger.Tags.VM, "generateWithToolLoop: starting inference timeout (60s)")
         memoryMonitor.startInferenceTimeout(60_000L)
         
         while (iteration < maxIterations) {
             iteration++
+            Logger.i(Logger.Tags.VM, "--- Iteration $iteration/$maxIterations ---")
             var tempResponse = ""
+            var tokenCount = 0
             
             if (memoryMonitor.isInferenceTimeout()) {
+                Logger.w(Logger.Tags.VM, "generateWithToolLoop: timeout detected before generation")
                 handleTimeout(conversation, modelId, userInput, allDisplayText, originalAiResponse, "stopping generation")
                 return
             }
@@ -272,27 +281,39 @@ class ChatViewModel @Inject constructor(
             )
             
             val responseDeferred = CompletableDeferred<String>()
+            val generationStartTime = System.currentTimeMillis()
+            
+            Logger.d(Logger.Tags.VM, "generateWithToolLoop: calling llamaEngine.generate(), prompt=${currentPrompt.take(100)}...")
             
             llamaEngine.generate(
                 prompt = currentPrompt,
                 onToken = { token ->
+                    tokenCount++
                     tempResponse += token
                     _streamingMessage.value = _streamingMessage.value?.copy(
                         content = allDisplayText + tempResponse
                     )
+                    if (tokenCount % 10 == 0) {
+                        Logger.v(Logger.Tags.VM, "generateWithToolLoop: received $tokenCount tokens, tempResponse=${tempResponse.length} chars")
+                    }
                 },
                 onComplete = { finalResponse ->
+                    val elapsed = System.currentTimeMillis() - generationStartTime
+                    Logger.i(Logger.Tags.VM, "generateWithToolLoop: generation completed in ${elapsed}ms, ${finalResponse.length} chars, $tokenCount tokens")
                     responseDeferred.complete(finalResponse)
                 },
                 onError = { error ->
+                    val elapsed = System.currentTimeMillis() - generationStartTime
+                    Logger.e(Logger.Tags.VM, "generateWithToolLoop: generation error after ${elapsed}ms: $error")
                     responseDeferred.completeExceptionally(Exception(error))
                 }
             )
             
+            Logger.d(Logger.Tags.VM, "generateWithToolLoop: waiting for response...")
             val response = try {
                 responseDeferred.await()
             } catch (e: Exception) {
-                Logger.e(Logger.Tags.VM, "generateWithToolLoop error: ${e.message}")
+                Logger.e(Logger.Tags.VM, "generateWithToolLoop error: ${e.message}", e)
                 chatRepository.sendMessage(
                     conversationId = conversation.id,
                     role = MessageRole.ASSISTANT,
@@ -305,14 +326,21 @@ class ChatViewModel @Inject constructor(
                 return
             }
             
+            Logger.d(Logger.Tags.VM, "generateWithToolLoop: response received, length=${response.length}")
+            Logger.v(Logger.Tags.VM, "generateWithToolLoop: response content='${response.take(200)}...'")
+            
             if (memoryMonitor.isInferenceTimeout()) {
+                Logger.w(Logger.Tags.VM, "generateWithToolLoop: timeout detected after generation")
                 handleTimeout(conversation, modelId, userInput, allDisplayText, originalAiResponse, "after tool execution")
                 return
             }
             
+            Logger.d(Logger.Tags.VM, "generateWithToolLoop: parsing tool calls...")
             val (cleanText, toolCalls) = deviceToolExecutor.parseToolCalls(response)
+            Logger.i(Logger.Tags.VM, "generateWithToolLoop: parsed ${toolCalls.size} tool calls, cleanText=${cleanText.length} chars")
             
             if (toolCalls.isEmpty()) {
+                Logger.i(Logger.Tags.VM, "generateWithToolLoop: no tool calls found, finalizing response")
                 allDisplayText += cleanText
                 originalAiResponse += cleanText
                 finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
@@ -320,6 +348,9 @@ class ChatViewModel @Inject constructor(
             }
             
             Logger.i(Logger.Tags.VM, "Found ${toolCalls.size} tool calls, executing...")
+            toolCalls.forEachIndexed { index, call ->
+                Logger.d(Logger.Tags.VM, "ToolCall[$index]: name=${call.name}, params='${call.params}'")
+            }
             
             originalAiResponse += response
             
@@ -347,12 +378,14 @@ class ChatViewModel @Inject constructor(
             
             val template = ChatTemplate.fromModelId(modelId)
             currentPrompt = buildToolResultPrompt(template, currentPrompt, response, toolResults.toString())
+            Logger.d(Logger.Tags.VM, "generateWithToolLoop: updated prompt for next iteration, length=${currentPrompt.length}")
             
             llamaEngine.clearPromptCache()
         }
         
         Logger.w(Logger.Tags.VM, "generateWithToolLoop: max iterations ($maxIterations) reached")
         finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
+        Logger.i(Logger.Tags.VM, "=== generateWithToolLoop END ===")
     }
     
     private fun buildToolResultPrompt(

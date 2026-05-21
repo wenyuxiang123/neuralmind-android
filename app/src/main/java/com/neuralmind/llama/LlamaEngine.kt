@@ -413,4 +413,3 @@ data class ModelInfo(
     val isLoaded: Boolean,
     val config: InferenceConfig
 )
-

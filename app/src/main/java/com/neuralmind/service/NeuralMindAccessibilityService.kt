@@ -118,16 +118,25 @@ class NeuralMindAccessibilityService : AccessibilityService() {
      * @return 是否成功
      */
     fun clickByText(text: String, exactMatch: Boolean = false): Boolean {
-        val rootNode = rootInActiveWindow ?: return false
+        Logger.d(TAG, "clickByText: text='$text', exactMatch=$exactMatch")
+        val rootNode = rootInActiveWindow ?: run {
+            Logger.w(TAG, "clickByText: rootInActiveWindow is null")
+            return false
+        }
         
         val node = findNodeByText(rootNode, text, exactMatch)
         if (node != null) {
+            val bounds = android.graphics.Rect()
+            node.getBoundsInScreen(bounds)
+            Logger.i(TAG, "clickByText: found node at $bounds, clicking...")
             val result = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            Logger.i(TAG, "clickByText: click result=$result")
             node.recycle()
             rootNode.recycle()
             return result
         }
         
+        Logger.d(TAG, "clickByText: node not found for text='$text'")
         rootNode.recycle()
         return false
     }
