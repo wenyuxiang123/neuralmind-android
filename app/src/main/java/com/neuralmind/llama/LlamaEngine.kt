@@ -399,10 +399,10 @@ class LlamaEngine @Inject constructor(
 
 data class InferenceConfig(
     val maxTokens: Int = 4096,       // No artificial limit - bounded by n_ctx in C++
-    val temperature: Float = 0.7f,
+    val temperature: Float = 0.3f,   // 降低温度，增加确定性
     val topP: Float = 0.9f,
-    val topK: Int = 40,
-    val repeatPenalty: Float = 1.1f,
+    val topK: Int = 10,              // 降低top_k，让选择更确定
+    val repeatPenalty: Float = 1.0f, // 降低重复惩罚，避免过度约束
     val stopSequence: String? = null // Let llama_vocab_is_eog handle EOS for all model formats
 )
 

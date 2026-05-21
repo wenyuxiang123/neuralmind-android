@@ -515,51 +515,40 @@ class ChatViewModel @Inject constructor(
     
     private suspend fun buildSystemPrompt(): String {
         val sb = StringBuilder()
-        sb.append("你是NeuralMind AI助手，一个运行在本地设备上的智能助手。")
+        
+        sb.append("【设备操控工具】\n")
+        sb.append("你可以使用以下工具操控手机，必须严格按格式调用：\n\n")
+        sb.append("格式：[ACTION:工具名]参数[/ACTION]\n\n")
+        sb.append("工具列表：\n")
+        sb.append("- launch_app: 打开应用，参数=应用名。例：[ACTION:launch_app]抖音[/ACTION]\n")
+        sb.append("- click_text: 点击文字，参数=文字内容。例：[ACTION:click_text]确定[/ACTION]\n")
+        sb.append("- input_text: 输入文字，参数=内容。例：[ACTION:input_text]你好[/ACTION]\n")
+        sb.append("- go_back: 返回，无参数。例：[ACTION:go_back][/ACTION]\n")
+        sb.append("- go_home: 回到主页，无参数。例：[ACTION:go_home][/ACTION]\n")
+        sb.append("- swipe_up/swipe_down/swipe_left/swipe_right: 滑动屏幕\n\n")
+        sb.append("重要提示：\n")
+        sb.append("1. 用户说\"打开\"+应用名时，必须使用launch_app工具！\n")
+        sb.append("2. 工具调用格式：先用自然语言说明，再用[ACTION:...]标签\n")
+        sb.append("3. 例如：我来帮你打开抖音。[ACTION:launch_app]抖音[/ACTION]\n\n")
+        
+        sb.append("你是NeuralMind AI助手，运行在本地设备上。")
         
         val activeSkillPrompts = try { skillRepository.getActiveSystemPrompts() } catch (e: Exception) { "" }
         if (activeSkillPrompts.isNotBlank()) {
             sb.append(activeSkillPrompts)
         }
         
-        sb.append("\n\n【设备操控工具】\n")
-        sb.append("你可以使用以下工具来操控手机。当需要执行操作时，在回复中包含工具调用。\n")
-        sb.append("格式：[ACTION:工具名]参数[/ACTION]\n\n")
-        sb.append("可用工具：\n")
-        sb.append("- launch_app: 打开应用，参数为应用名（桌面显示的名字，如微信、抖音），系统会像人一样在桌面找到图标点击。例：[ACTION:launch_app]微信[/ACTION]\n")
-        sb.append("- click_text: 点击屏幕上的文字。例：[ACTION:click_text]确定[/ACTION]\n")
-        sb.append("- input_text: 输入文字。格式\"提示|内容\"，或直接输入内容。例：[ACTION:input_text]搜索|天气[/ACTION]\n")
-        sb.append("- go_back: 返回。例：[ACTION:go_back][/ACTION]\n")
-        sb.append("- go_home: 回到主页。例：[ACTION:go_home][/ACTION]\n")
-        sb.append("- open_notifications: 打开通知栏\n")
-        sb.append("- open_quick_settings: 打开快捷设置\n")
-        sb.append("- open_recents: 打开最近任务\n")
-        sb.append("- swipe_up/swipe_down/swipe_left/swipe_right: 滑动\n")
-        sb.append("- get_screen: 获取当前屏幕内容\n\n")
-        sb.append("【工具调用强制规则】\n")
-        sb.append("=== ⚠️ 以下规则为强制性，必须严格遵守！===\n")
-        sb.append("规则1: 当用户说\"打开\"、\"启动\"、\"运行\"应用时，**必须、强制、无条件**使用launch_app工具！\n")
-        sb.append("       例如：用户说\"打开抖音\" → 必须输出：我来帮你打开抖音应用。[ACTION:launch_app]抖音[/ACTION]\n")
-        sb.append("       即使记忆中显示之前打开过，也必须重新调用工具！\n")
-        sb.append("规则2: 工具调用是**强制性**的，不能跳过！不允许假装调用工具或跳过工具直接回复！\n")
-        sb.append("规则3: 只调用完成任务所需的工具，不要调用多余的工具！\n")
-        sb.append("规则4: 每个工具只调用一次，不要重复调用相同的工具！\n")
-        sb.append("规则5: 调用工具前先用自然语言告诉用户你要做什么\n")
-        sb.append("规则6: launch_app参数用应用的中文名，就是桌面上显示的名字\n")
-        sb.append("规则7: 一次只调用1个工具，不要调用更多！\n")
-        sb.append("规则8: 完成工具调用后，立即停止生成，不要继续输出任何内容！\n")
-        sb.append("规则9: 记忆中的对话仅供参考，不能模仿记忆中的回复模式！必须遵守以上工具调用规则！\n")
-        
         val activeMemories = try { memoryRepository.getActiveMemoriesSnapshot() } catch (e: Exception) { emptyList() }
         if (activeMemories.isNotEmpty()) {
-            sb.append("\n\n【关于用户的记忆（仅供参考）】\n")
             val relevantMemories = activeMemories
                 .sortedByDescending { it.importance }
-                .take(5)
-            relevantMemories.forEach { memory ->
-                sb.append("- [${memory.layer.description}] ${memory.content}\n")
+                .take(3)
+            if (relevantMemories.isNotEmpty()) {
+                sb.append("\n\n【关于用户的信息】\n")
+                relevantMemories.forEach { memory ->
+                    sb.append("- ${memory.content}\n")
+                }
             }
-            sb.append("\n⚠️ 注意：记忆中的对话仅供参考，不能作为回复模板！必须遵守工具调用规则！\n")
         }
         
         return sb.toString()
