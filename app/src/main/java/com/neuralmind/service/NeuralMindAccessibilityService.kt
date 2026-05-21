@@ -9,6 +9,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.content.pm.PackageManager
+import com.neuralmind.core.Logger
 
 /**
  * NeuralMind 无障碍服务 - 屏幕操控核心
@@ -17,6 +18,7 @@ import android.content.pm.PackageManager
 class NeuralMindAccessibilityService : AccessibilityService() {
 
     companion object {
+        private const val TAG = "NM-A11y"
         private var instance: NeuralMindAccessibilityService? = null
         
         fun getInstance(): NeuralMindAccessibilityService? = instance
