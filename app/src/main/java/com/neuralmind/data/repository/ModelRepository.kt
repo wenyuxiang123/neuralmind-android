@@ -115,7 +115,7 @@ class ModelRepository @Inject constructor(
     }
     
     private fun createModel(id: String, name: String, desc: String, size: Long, params: Int, 
-                           url: String, minRam: Int, minStorage: Int, recommendedRam: Int,
+                           url: String, minRam: Long, minStorage: Long, recommendedRam: Long,
                            category: ModelCategory, nnapi: Boolean = true) = ModelEntity(
         id = id, name = name, description = desc, size = size, parameters = params,
         quantization = "Q4_K_M", category = category.name, downloadUrl = url,
@@ -124,15 +124,15 @@ class ModelRepository @Inject constructor(
     )
     
     private fun createMobileModel(id: String, name: String, desc: String, size: Long, params: Int,
-                                  url: String, minRam: Int, minStorage: Int, recommendedRam: Int) =
+                                  url: String, minRam: Long, minStorage: Long, recommendedRam: Long) =
         createModel(id, name, desc, size, params, url, minRam, minStorage, recommendedRam, ModelCategory.MOBILE)
     
     private fun createTextModel(id: String, name: String, desc: String, size: Long, params: Int,
-                                url: String, minRam: Int, minStorage: Int, recommendedRam: Int, nnapi: Boolean = true) =
+                                url: String, minRam: Long, minStorage: Long, recommendedRam: Long, nnapi: Boolean = true) =
         createModel(id, name, desc, size, params, url, minRam, minStorage, recommendedRam, ModelCategory.TEXT, nnapi)
     
     private fun createCodeModel(id: String, name: String, desc: String, size: Long, params: Int,
-                                url: String, minRam: Int, minStorage: Int, recommendedRam: Int) =
+                                url: String, minRam: Long, minStorage: Long, recommendedRam: Long) =
         createModel(id, name, desc, size, params, url, minRam, minStorage, recommendedRam, ModelCategory.CODE, nnapi = false)
     
     suspend fun downloadModel(modelId: String) {

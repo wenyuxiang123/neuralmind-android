@@ -40,5 +40,5 @@ class UpdateMemoryUseCase @Inject constructor(
 class DeleteMemoryUseCase @Inject constructor(
     private val repository: MemoryRepository
 ) {
-    suspend operator fun invoke(memory: Memory) = repository.deleteMemory(memory)
+    suspend operator fun invoke(memoryId: Long) = repository.deleteMemory(memoryId)
 }
