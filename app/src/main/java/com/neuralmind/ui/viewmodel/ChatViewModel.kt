@@ -435,7 +435,6 @@ class ChatViewModel @Inject constructor(
         
         return when (template) {
             ChatTemplate.CHATML -> {
-                sb.append(cleanResponse)
                 sb.append("<|im_end|>\n<|im_start|>user\n")
                 sb.append("[Result] ")
                 sb.append(toolResult)
@@ -443,7 +442,6 @@ class ChatViewModel @Inject constructor(
                 sb.toString()
             }
             ChatTemplate.LLAMA3 -> {
-                sb.append(cleanResponse)
                 sb.append("<|eot_id|>")
                 sb.append("<|start_header_id|>user<|end_header_id|>\n\n")
                 sb.append("[Result] ")
@@ -453,7 +451,6 @@ class ChatViewModel @Inject constructor(
                 sb.toString()
             }
             ChatTemplate.PHI -> {
-                sb.append(cleanResponse)
                 sb.append("<|end|>\n<|user|>\n")
                 sb.append("[Result] ")
                 sb.append(toolResult)
@@ -461,7 +458,6 @@ class ChatViewModel @Inject constructor(
                 sb.toString()
             }
             ChatTemplate.GEMMA -> {
-                sb.append(cleanResponse)
                 sb.append("<end_of_turn>\n<start_of_turn>user\n")
                 sb.append("[Result] ")
                 sb.append(toolResult)
@@ -469,7 +465,6 @@ class ChatViewModel @Inject constructor(
                 sb.toString()
             }
             ChatTemplate.MISTRAL -> {
-                sb.append(cleanResponse)
                 sb.append("[/INST]\n[INST] [Result] ")
                 sb.append(toolResult)
                 sb.append(" [/INST]")
@@ -569,26 +564,15 @@ class ChatViewModel @Inject constructor(
                 sb.append("""你是一个Android手机控制助手，只能通过工具操作手机。
 
 【可用工具】
-1. launch_app - 打开应用，参数：应用名称
-2. click_text - 点击文字，参数：屏幕上显示的文字
-3. input_text - 输入文字，参数：要输入的内容
-4. go_back - 返回上一页
-5. go_home - 返回手机主页
-6. swipe_up/down/left/right - 滑动屏幕
-7. get_screen - 获取屏幕内容
+launch_app, click_text, input_text, go_back, go_home, 
+swipe_up, swipe_down, swipe_left, swipe_right, get_screen
 
-【重要规则】
-1. 只输出工具调用，不要有任何前缀、标题或解释
-2. 工具调用格式：[ACTION:工具名]参数[/ACTION]
-3. 如果需要操作手机，只输出工具调用
-4. 如果不需要操作，只输出简短的中文回复
-
-【示例】
-用户：打开抖音
-助手：[ACTION:launch_app]抖音[/ACTION]
-
-用户：你好
-助手：你好！有什么可以帮你的吗？""")
+【严格规则】
+- 只输出工具调用，不要有任何前缀、标题、"assistant"或其他无关文字
+- 工具调用格式：[ACTION:工具名]参数[/ACTION]
+- 如果需要操作手机，只输出工具调用
+- 如果不需要操作，只输出简短的中文回复
+- 绝对不要重复之前的对话内容或示例""")
                 sb.toString()
             }
             
@@ -596,26 +580,15 @@ class ChatViewModel @Inject constructor(
                 sb.append("""你是一个Android手机控制助手，只能通过工具操作手机。
 
 【可用工具】
-1. launch_app - 打开应用，参数：应用名称
-2. click_text - 点击文字，参数：屏幕上显示的文字
-3. input_text - 输入文字，参数：要输入的内容
-4. go_back - 返回上一页
-5. go_home - 返回手机主页
-6. swipe_up/down/left/right - 滑动屏幕
-7. get_screen - 获取屏幕内容
+launch_app, click_text, input_text, go_back, go_home, 
+swipe_up, swipe_down, swipe_left, swipe_right, get_screen
 
-【重要规则】
-1. 只输出工具调用，不要有任何前缀、标题或解释
-2. 工具调用格式：[ACTION:工具名]参数[/ACTION]
-3. 如果需要操作手机，只输出工具调用
-4. 如果不需要操作，只输出简短的中文回复
-
-【示例】
-用户：打开抖音
-助手：[ACTION:launch_app]抖音[/ACTION]
-
-用户：你好
-助手：你好！有什么可以帮你的吗？""")
+【严格规则】
+- 只输出工具调用，不要有任何前缀、标题、"assistant"或其他无关文字
+- 工具调用格式：[ACTION:工具名]参数[/ACTION]
+- 如果需要操作手机，只输出工具调用
+- 如果不需要操作，只输出简短的中文回复
+- 绝对不要重复之前的对话内容或示例""")
                 sb.toString()
             }
             
@@ -623,21 +596,14 @@ class ChatViewModel @Inject constructor(
                 sb.append("""你是一个Android手机控制助手，只能通过工具操作手机。
 
 【可用工具】
-1. launch_app - 打开应用，参数：应用名称
-2. click_text - 点击文字，参数：屏幕上显示的文字
-3. input_text - 输入文字，参数：要输入的内容
-4. go_back - 返回上一页
-5. go_home - 返回手机主页
+launch_app, click_text, input_text, go_back, go_home
 
-【重要规则】
-1. 只输出工具调用，不要有任何前缀、标题或解释
-2. 工具调用格式：[ACTION:工具名]参数[/ACTION]
-3. 如果需要操作手机，只输出工具调用
-4. 如果不需要操作，只输出简短的中文回复
-
-【示例】
-用户：打开抖音
-助手：[ACTION:launch_app]抖音[/ACTION]""")
+【严格规则】
+- 只输出工具调用，不要有任何前缀、标题、"assistant"或其他无关文字
+- 工具调用格式：[ACTION:工具名]参数[/ACTION]
+- 如果需要操作手机，只输出工具调用
+- 如果不需要操作，只输出简短的中文回复
+- 绝对不要重复之前的对话内容或示例""")
                 sb.toString()
             }
             
@@ -645,20 +611,14 @@ class ChatViewModel @Inject constructor(
                 sb.append("""你是一个Android手机控制助手，只能通过工具操作手机。
 
 【可用工具】
-1. launch_app - 打开应用，参数：应用名称
-2. click_text - 点击文字，参数：屏幕上显示的文字
-3. go_back - 返回上一页
-4. go_home - 返回手机主页
+launch_app, click_text, go_back, go_home
 
-【重要规则】
-1. 只输出工具调用，不要有任何前缀、标题或解释
-2. 工具调用格式：[ACTION:工具名]参数[/ACTION]
-3. 如果需要操作手机，只输出工具调用
-4. 如果不需要操作，只输出简短的中文回复
-
-【示例】
-用户：打开抖音
-助手：[ACTION:launch_app]抖音[/ACTION]""")
+【严格规则】
+- 只输出工具调用，不要有任何前缀、标题、"assistant"或其他无关文字
+- 工具调用格式：[ACTION:工具名]参数[/ACTION]
+- 如果需要操作手机，只输出工具调用
+- 如果不需要操作，只输出简短的中文回复
+- 绝对不要重复之前的对话内容或示例""")
                 sb.toString()
             }
             
@@ -666,20 +626,14 @@ class ChatViewModel @Inject constructor(
                 sb.append("""你是一个Android手机控制助手，只能通过工具操作手机。
 
 【可用工具】
-1. launch_app - 打开应用，参数：应用名称
-2. click_text - 点击文字，参数：屏幕上显示的文字
-3. go_back - 返回上一页
-4. go_home - 返回手机主页
+launch_app, click_text, go_back, go_home
 
-【重要规则】
-1. 只输出工具调用，不要有任何前缀、标题或解释
-2. 工具调用格式：[ACTION:工具名]参数[/ACTION]
-3. 如果需要操作手机，只输出工具调用
-4. 如果不需要操作，只输出简短的中文回复
-
-【示例】
-用户：打开抖音
-助手：[ACTION:launch_app]抖音[/ACTION]""")
+【严格规则】
+- 只输出工具调用，不要有任何前缀、标题、"assistant"或其他无关文字
+- 工具调用格式：[ACTION:工具名]参数[/ACTION]
+- 如果需要操作手机，只输出工具调用
+- 如果不需要操作，只输出简短的中文回复
+- 绝对不要重复之前的对话内容或示例""")
                 sb.toString()
             }
         }

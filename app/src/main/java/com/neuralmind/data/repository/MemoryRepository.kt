@@ -128,26 +128,19 @@ class MemoryRepository @Inject constructor(
     )
     
     suspend fun saveConversationSegment(userContent: String, aiContent: String, modelId: String) {
-        Logger.d(Logger.Tags.REPO, "saveConversationSegment: user=${userContent.take(20)}..., modelId=$modelId")
+        Logger.d(Logger.Tags.REPO, "saveConversationSegment: DISABLED (to prevent memory pollution)")
+        // 暂时禁用对话保存，避免模型学习到错误的行为
+    }
+    
+    suspend fun clearAllDialogueMemories() {
+        Logger.d(Logger.Tags.REPO, "clearAllDialogueMemories() called")
         try {
-            val truncatedContent = if (userContent.length > 200 || aiContent.length > 200) {
-                "用户: ${userContent.take(200)}\nAI: ${aiContent.take(200)}"
-            } else {
-                "用户: $userContent\nAI: $aiContent"
+            dialogueLayers.forEach { (layer, _) ->
+                clearLayerMemories(layer)
             }
-            
-            dialogueLayers.forEach { (layer, importance) ->
-                addMemory(Memory(
-                    layer = layer,
-                    content = truncatedContent,
-                    category = "对话",
-                    importance = importance
-                ))
-            }
-            
-            Logger.i(Logger.Tags.REPO, "saveConversationSegment success: saved to L1/L2/L3 layers")
+            Logger.i(Logger.Tags.REPO, "clearAllDialogueMemories success: cleared L1-L3 layers")
         } catch (e: Exception) {
-            Logger.e(Logger.Tags.REPO, "saveConversationSegment failed", e)
+            Logger.e(Logger.Tags.REPO, "clearAllDialogueMemories failed", e)
         }
     }
     
@@ -180,9 +173,10 @@ class MemoryRepository @Inject constructor(
                 }
             }
             
-            dialogueLayers.forEach { (layer, _) -> activateMemoryLayer(layer) }
+            // 暂时禁用对话记忆激活，避免记忆污染
+            // dialogueLayers.forEach { (layer, _) -> activateMemoryLayer(layer) }
             
-            Logger.i(Logger.Tags.REPO, "activateMemoryFromUserInput completed")
+            Logger.i(Logger.Tags.REPO, "activateMemoryFromUserInput completed (dialogue memory disabled)")
         } catch (e: Exception) {
             Logger.e(Logger.Tags.REPO, "activateMemoryFromUserInput failed", e)
         }

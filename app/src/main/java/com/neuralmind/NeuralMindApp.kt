@@ -77,6 +77,10 @@ class NeuralMindApp : Application() {
             try {
                 memoryRepository.insertDefaultMemories()
                 Logger.d(Logger.Tags.REPO, "MemoryRepository initialized")
+                
+                // 清除已保存的对话记忆，避免记忆污染
+                Logger.d(Logger.Tags.REPO, "Clearing dialogue memories to prevent pollution")
+                memoryRepository.clearAllDialogueMemories()
             } catch (e: Exception) {
                 Logger.e(Logger.Tags.REPO, "Error initializing MemoryRepository", e)
             }

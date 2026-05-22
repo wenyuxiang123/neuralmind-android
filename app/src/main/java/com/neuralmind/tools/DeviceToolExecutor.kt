@@ -55,14 +55,21 @@ class DeviceToolExecutor @Inject constructor(
     fun parseToolCalls(text: String): Pair<String, List<DeviceToolCall>> {
         val rawCalls = mutableListOf<DeviceToolCall>()
         
+        // 1. 先尝试用标准正则匹配
         ACTION_REGEX.findAll(text).forEach { match ->
             val toolName = match.groupValues[1]
             val params = match.groupValues[2].trim()
             rawCalls.add(DeviceToolCall(toolName, params))
         }
         
+        // 2. 如果没有匹配到，尝试修复格式错误的工具调用
+        if (rawCalls.isEmpty()) {
+            rawCalls.addAll(parseFuzzyToolCalls(text))
+        }
+        
         var cleanText = text
         
+        // 移除所有工具调用
         ACTION_REGEX.findAll(text).forEach { match ->
             cleanText = cleanText.replace(match.value, "")
         }
@@ -77,6 +84,31 @@ class DeviceToolExecutor @Inject constructor(
         }
         
         return Pair(cleanText, filterAndLimitToolCalls(rawCalls))
+    }
+    
+    private fun parseFuzzyToolCalls(text: String): List<DeviceToolCall> {
+        val calls = mutableListOf<DeviceToolCall>()
+        val validTools = VALID_TOOLS.joinToString("|")
+        
+        // 匹配各种格式错误的工具调用
+        // 例如：[ACTION:go_home[/ACTION], [ACTION:go_home[/ACTION, ACTION:go_home]params[/ACTION]
+        val fuzzyPattern = Regex("""\[?ACTION:($validTools)\]?(.*?)(?:\[/?ACTION\]|$)""", RegexOption.IGNORE_CASE)
+        
+        fuzzyPattern.findAll(text).forEach { match ->
+            val toolName = match.groupValues[1].lowercase()
+            var params = match.groupValues[2].trim()
+            
+            // 清理参数中的无效内容
+            params = params.replace(Regex("""\[/?ACTION.*?\]""", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("""assistant|user|human|ai""", RegexOption.IGNORE_CASE), "")
+                .trim()
+            
+            if (toolName.isNotEmpty()) {
+                calls.add(DeviceToolCall(toolName, params))
+            }
+        }
+        
+        return calls
     }
     
     private fun filterAndLimitToolCalls(calls: List<DeviceToolCall>): List<DeviceToolCall> {
