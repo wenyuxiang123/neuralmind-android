@@ -544,22 +544,33 @@ class ChatViewModel @Inject constructor(
     private suspend fun buildSystemPrompt(): String {
         val sb = StringBuilder()
         
-        sb.append("【设备操控工具】\n")
-        sb.append("你可以使用以下工具操控手机，必须严格按格式调用：\n\n")
-        sb.append("格式：[ACTION:工具名]参数[/ACTION]\n\n")
-        sb.append("工具列表：\n")
-        sb.append("- launch_app: 打开应用，参数=应用名。例：[ACTION:launch_app]抖音[/ACTION]\n")
-        sb.append("- click_text: 点击文字，参数=文字内容。例：[ACTION:click_text]确定[/ACTION]\n")
-        sb.append("- input_text: 输入文字，参数=内容。例：[ACTION:input_text]你好[/ACTION]\n")
-        sb.append("- go_back: 返回，无参数。例：[ACTION:go_back][/ACTION]\n")
-        sb.append("- go_home: 回到主页，无参数。例：[ACTION:go_home][/ACTION]\n")
-        sb.append("- swipe_up/swipe_down/swipe_left/swipe_right: 滑动屏幕\n\n")
-        sb.append("重要提示：\n")
-        sb.append("1. 用户说\"打开\"+应用名时，必须使用launch_app工具！\n")
-        sb.append("2. 工具调用格式：先用自然语言说明，再用[ACTION:...]标签\n")
-        sb.append("3. 例如：我来帮你打开抖音。[ACTION:launch_app]抖音[/ACTION]\n\n")
-        
-        sb.append("你是NeuralMind AI助手，运行在本地设备上。")
+        sb.append("你是一个Android手机控制助手。当用户请求打开应用、点击按钮、输入文字等操作时，你必须使用工具来完成。\n\n")
+        sb.append("【可用工具】\n")
+        sb.append("当用户说\"打开XXX\"时，使用 launch_app 工具。\n")
+        sb.append("示例：\n")
+        sb.append("用户: 打开抖音\n")
+        sb.append("助手: [ACTION:launch_app]抖音[/ACTION]\n\n")
+        sb.append("当需要点击屏幕上的文字时，使用 click_text 工具。\n")
+        sb.append("示例：\n")
+        sb.append("用户: 点击确定\n")
+        sb.append("助手: [ACTION:click_text]确定[/ACTION]\n\n")
+        sb.append("当需要输入文字时，使用 input_text 工具。\n")
+        sb.append("示例：\n")
+        sb.append("用户: 输入你好\n")
+        sb.append("助手: [ACTION:input_text]你好[/ACTION]\n\n")
+        sb.append("当需要返回时，使用 go_back 工具。\n")
+        sb.append("示例：\n")
+        sb.append("用户: 返回\n")
+        sb.append("助手: [ACTION:go_back][/ACTION]\n\n")
+        sb.append("当需要回到主页时，使用 go_home 工具。\n")
+        sb.append("示例：\n")
+        sb.append("用户: 回主页\n")
+        sb.append("助手: [ACTION:go_home][/ACTION]\n\n")
+        sb.append("重要规则：\n")
+        sb.append("1. 只在需要操作手机时使用工具，不需要时直接用文字回答。\n")
+        sb.append("2. 工具格式： [ACTION:工具名]参数[/ACTION] \n")
+        sb.append("3. 工具名和参数都使用中文。\n")
+        sb.append("4. 如果不需要操作手机，直接用中文回答用户问题。\n\n")
         
         val activeSkillPrompts = try { skillRepository.getActiveSystemPrompts() } catch (e: Exception) { "" }
         if (activeSkillPrompts.isNotBlank()) {
@@ -572,7 +583,7 @@ class ChatViewModel @Inject constructor(
                 .sortedByDescending { it.importance }
                 .take(3)
             if (relevantMemories.isNotEmpty()) {
-                sb.append("\n\n【关于用户的信息】\n")
+                sb.append("\n【用户信息】\n")
                 relevantMemories.forEach { memory ->
                     sb.append("- ${memory.content}\n")
                 }
