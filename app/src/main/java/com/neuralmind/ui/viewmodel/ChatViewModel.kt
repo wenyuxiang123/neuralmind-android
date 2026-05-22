@@ -415,6 +415,7 @@ class ChatViewModel @Inject constructor(
         
         return when (template) {
             ChatTemplate.CHATML -> {
+                sb.append(cleanResponse)
                 sb.append("<|im_end|>\n<|im_start|>user\n")
                 sb.append("[Result] ")
                 sb.append(toolResult)
@@ -422,6 +423,7 @@ class ChatViewModel @Inject constructor(
                 sb.toString()
             }
             ChatTemplate.LLAMA3 -> {
+                sb.append(cleanResponse)
                 sb.append("<|eot_id|>")
                 sb.append("<|start_header_id|>user<|end_header_id|>\n\n")
                 sb.append("[Result] ")
@@ -431,6 +433,7 @@ class ChatViewModel @Inject constructor(
                 sb.toString()
             }
             ChatTemplate.PHI -> {
+                sb.append(cleanResponse)
                 sb.append("<|end|>\n<|user|>\n")
                 sb.append("[Result] ")
                 sb.append(toolResult)
@@ -438,6 +441,7 @@ class ChatViewModel @Inject constructor(
                 sb.toString()
             }
             ChatTemplate.GEMMA -> {
+                sb.append(cleanResponse)
                 sb.append("<end_of_turn>\n<start_of_turn>user\n")
                 sb.append("[Result] ")
                 sb.append(toolResult)
@@ -445,6 +449,7 @@ class ChatViewModel @Inject constructor(
                 sb.toString()
             }
             ChatTemplate.MISTRAL -> {
+                sb.append(cleanResponse)
                 sb.append("[/INST]\n[INST] [Result] ")
                 sb.append(toolResult)
                 sb.append(" [/INST]")
