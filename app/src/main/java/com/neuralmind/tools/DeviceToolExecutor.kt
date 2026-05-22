@@ -26,6 +26,8 @@ class DeviceToolExecutor @Inject constructor(
     companion object {
         private val ACTION_REGEX = Regex("""\[ACTION:(\w+)\](.*?)\[/ACTION\]""")
         private const val TAG = "DeviceToolExecutor"
+        private const val MAX_CLEAN_TEXT_LENGTH = 200
+        private const val MAX_TOOL_CALLS = 3
         
         private val VALID_TOOLS = setOf(
             "launch_app", "click_text", "input_text", "go_back", 
@@ -33,6 +35,10 @@ class DeviceToolExecutor @Inject constructor(
             "open_recents", "swipe_up", "swipe_down", "swipe_left", 
             "swipe_right", "get_screen", "search_app", "click_at", 
             "long_click"
+        )
+        
+        private val FORBIDDEN_PATTERNS = Regex(
+            """(?i)(assistant|Human:|user:|human:|ai:|<\|.*?\|>|</?.*?>)"""
         )
         
         private const val CENTER_X = 540
@@ -55,8 +61,20 @@ class DeviceToolExecutor @Inject constructor(
             rawCalls.add(DeviceToolCall(toolName, params))
         }
         
-        val cleanText = ACTION_REGEX.replace(text, "").trim()
-            .replace(Regex("\n{3,}"), "\n\n").trim()
+        var cleanText = text
+        
+        ACTION_REGEX.findAll(text).forEach { match ->
+            cleanText = cleanText.replace(match.value, "")
+        }
+        
+        cleanText = cleanText.replace(FORBIDDEN_PATTERNS, "")
+            .replace(Regex("""\s+"""), " ")
+            .replace(Regex("""\n{2,}"""), "\n")
+            .trim()
+        
+        if (cleanText.length > MAX_CLEAN_TEXT_LENGTH) {
+            cleanText = cleanText.take(MAX_CLEAN_TEXT_LENGTH) + "..."
+        }
         
         return Pair(cleanText, filterAndLimitToolCalls(rawCalls))
     }
@@ -81,7 +99,7 @@ class DeviceToolExecutor @Inject constructor(
             }
             
             validCalls.add(call)
-            if (validCalls.size >= 1) break
+            if (validCalls.size >= MAX_TOOL_CALLS) break
         }
         
         return validCalls

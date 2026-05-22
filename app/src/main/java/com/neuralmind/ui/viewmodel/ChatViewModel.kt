@@ -70,6 +70,7 @@ class ChatViewModel @Inject constructor(
     private val reservedOutputTokens = 512
     private val tokenBudget: Int
         get() = llamaEngine.getNctx() - reservedOutputTokens
+    private val maxResponseLength = 500
     
     fun updateInputText(text: String) {
         Logger.d(Logger.Tags.VM, "updateInputText(text=${text.take(20)}...)")
@@ -205,17 +206,21 @@ class ChatViewModel @Inject constructor(
         modelId: String,
         userInput: String,
         allDisplayText: String,
-        originalAiResponse: String,
-        reason: String
+        originalAiResponse: String
     ) {
-        Logger.w(Logger.Tags.VM, "handleTimeout: $reason")
+        Logger.w(Logger.Tags.VM, "handleTimeout: stopping generation")
+        val safeDisplayText = if (allDisplayText.length > maxResponseLength) {
+            allDisplayText.take(maxResponseLength)
+        } else {
+            allDisplayText
+        }
         chatRepository.sendMessage(
             conversationId = conversation.id,
             role = MessageRole.ASSISTANT,
-            content = allDisplayText.ifBlank { "推理超时，请重试" },
+            content = safeDisplayText.ifBlank { "推理超时，请重试" },
             model = modelId
         )
-        memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
+        memoryRepository.saveConversationSegment(userInput, safeDisplayText, modelId)
         _streamingMessage.value = null
         _uiState.update { it.copy(isStreaming = false) }
         memoryMonitor.stopInferenceTimeout()
@@ -228,14 +233,19 @@ class ChatViewModel @Inject constructor(
         allDisplayText: String,
         originalAiResponse: String
     ) {
+        val safeDisplayText = if (allDisplayText.length > maxResponseLength) {
+            allDisplayText.take(maxResponseLength)
+        } else {
+            allDisplayText
+        }
         chatRepository.sendMessage(
             conversationId = conversation.id,
             role = MessageRole.ASSISTANT,
-            content = allDisplayText,
+            content = safeDisplayText,
             model = modelId
         )
-        memoryRepository.saveConversationSegment(userInput, originalAiResponse, modelId)
-        Logger.i(Logger.Tags.VM, "generateWithToolLoop: completed, ${allDisplayText.length} chars")
+        memoryRepository.saveConversationSegment(userInput, safeDisplayText, modelId)
+        Logger.i(Logger.Tags.VM, "generateWithToolLoop: completed, ${safeDisplayText.length} chars")
         _streamingMessage.value = null
         _uiState.update { it.copy(isStreaming = false) }
         memoryMonitor.stopInferenceTimeout()
@@ -271,7 +281,7 @@ class ChatViewModel @Inject constructor(
             
             if (memoryMonitor.isInferenceTimeout()) {
                 Logger.w(Logger.Tags.VM, "generateWithToolLoop: timeout detected before generation")
-                handleTimeout(conversation, modelId, userInput, allDisplayText, originalAiResponse, "stopping generation")
+                handleTimeout(conversation, modelId, userInput, allDisplayText, originalAiResponse)
                 return
             }
             
@@ -335,7 +345,7 @@ class ChatViewModel @Inject constructor(
             
             if (memoryMonitor.isInferenceTimeout()) {
                 Logger.w(Logger.Tags.VM, "generateWithToolLoop: timeout detected after generation")
-                handleTimeout(conversation, modelId, userInput, allDisplayText, originalAiResponse, "after tool execution")
+                handleTimeout(conversation, modelId, userInput, allDisplayText, originalAiResponse)
                 return
             }
             
@@ -345,7 +355,12 @@ class ChatViewModel @Inject constructor(
             
             if (toolCalls.isEmpty()) {
                 Logger.i(Logger.Tags.VM, "generateWithToolLoop: no tool calls found, finalizing response")
-                allDisplayText += cleanText
+                val safeCleanText = if (cleanText.length > maxResponseLength) {
+                    cleanText.take(maxResponseLength)
+                } else {
+                    cleanText
+                }
+                allDisplayText += safeCleanText
                 originalAiResponse += cleanText
                 finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
                 return
@@ -384,7 +399,12 @@ class ChatViewModel @Inject constructor(
             
             allDisplayText += toolResults.toString()
             
-            _streamingMessage.value = _streamingMessage.value?.copy(content = allDisplayText)
+            val safeDisplayText = if (allDisplayText.length > maxResponseLength) {
+                allDisplayText.take(maxResponseLength)
+            } else {
+                allDisplayText
+            }
+            _streamingMessage.value = _streamingMessage.value?.copy(content = safeDisplayText)
             
             if (!hasNewToolExecution) {
                 Logger.w(Logger.Tags.VM, "generateWithToolLoop: no new tool executions, ending loop")
@@ -546,125 +566,120 @@ class ChatViewModel @Inject constructor(
         
         return when (template) {
             ChatTemplate.CHATML -> {
-                sb.append("<|im_start|>system\n")
-                sb.append("你是一个Android手机控制助手。\n\n")
-                sb.append("你只能使用以下工具来操控手机：\n")
-                sb.append("1. launch_app - 打开应用，参数是应用名称\n")
-                sb.append("2. click_text - 点击文字，参数是屏幕上显示的文字\n")
-                sb.append("3. input_text - 输入文字，参数是要输入的内容\n")
-                sb.append("4. go_back - 返回上一页\n")
-                sb.append("5. go_home - 返回手机主页\n\n")
-                sb.append("【重要规则】\n")
-                sb.append("1. 只生成你的回复，不要生成用户说的话\n")
-                sb.append("2. 不要使用任何前缀（如 Human:、user: 等）\n")
-                sb.append("3. 不要重复已经说过的内容\n")
-                sb.append("4. 如果需要操作手机，只输出工具调用\n")
-                sb.append("5. 如果不需要操作，直接用中文回答\n\n")
-                sb.append("【格式要求】\n")
-                sb.append("工具调用格式：[ACTION:工具名]参数[/ACTION]\n")
-                sb.append("示例1 - 用户说\"打开抖音\"：\n")
-                sb.append("[ACTION:launch_app]抖音[/ACTION]\n\n")
-                sb.append("示例2 - 用户说\"你好\"（不需要操作）：\n")
-                sb.append("你好！有什么我可以帮助你的吗？\n")
-                sb.append("<|im_end|>\n")
+                sb.append("""你是一个Android手机控制助手，只能通过工具操作手机。
+
+【可用工具】
+1. launch_app - 打开应用，参数：应用名称
+2. click_text - 点击文字，参数：屏幕上显示的文字
+3. input_text - 输入文字，参数：要输入的内容
+4. go_back - 返回上一页
+5. go_home - 返回手机主页
+6. swipe_up/down/left/right - 滑动屏幕
+7. get_screen - 获取屏幕内容
+
+【重要规则】
+1. 只输出工具调用，不要有任何前缀、标题或解释
+2. 工具调用格式：[ACTION:工具名]参数[/ACTION]
+3. 如果需要操作手机，只输出工具调用
+4. 如果不需要操作，只输出简短的中文回复
+
+【示例】
+用户：打开抖音
+助手：[ACTION:launch_app]抖音[/ACTION]
+
+用户：你好
+助手：你好！有什么可以帮你的吗？""")
                 sb.toString()
             }
             
             ChatTemplate.LLAMA3 -> {
-                sb.append("<|start_header_id|>system<|end_header_id|>\n\n")
-                sb.append("你是一个Android手机控制助手。\n\n")
-                sb.append("你只能使用以下工具来操控手机：\n")
-                sb.append("1. launch_app - 打开应用，参数是应用名称\n")
-                sb.append("2. click_text - 点击文字，参数是屏幕上显示的文字\n")
-                sb.append("3. input_text - 输入文字，参数是要输入的内容\n")
-                sb.append("4. go_back - 返回上一页\n")
-                sb.append("5. go_home - 返回手机主页\n\n")
-                sb.append("【重要规则】\n")
-                sb.append("1. 只生成你的回复，不要生成用户说的话\n")
-                sb.append("2. 不要使用任何前缀（如 Human:、user: 等）\n")
-                sb.append("3. 不要重复已经说过的内容\n")
-                sb.append("4. 如果需要操作手机，只输出工具调用\n")
-                sb.append("5. 如果不需要操作，直接用中文回答\n\n")
-                sb.append("【格式要求】\n")
-                sb.append("工具调用格式：[ACTION:工具名]参数[/ACTION]\n")
-                sb.append("示例1 - 用户说\"打开抖音\"：\n")
-                sb.append("[ACTION:launch_app]抖音[/ACTION]\n\n")
-                sb.append("示例2 - 用户说\"你好\"（不需要操作）：\n")
-                sb.append("你好！有什么我可以帮助你的吗？\n")
-                sb.append("<|eot_id|>\n")
+                sb.append("""你是一个Android手机控制助手，只能通过工具操作手机。
+
+【可用工具】
+1. launch_app - 打开应用，参数：应用名称
+2. click_text - 点击文字，参数：屏幕上显示的文字
+3. input_text - 输入文字，参数：要输入的内容
+4. go_back - 返回上一页
+5. go_home - 返回手机主页
+6. swipe_up/down/left/right - 滑动屏幕
+7. get_screen - 获取屏幕内容
+
+【重要规则】
+1. 只输出工具调用，不要有任何前缀、标题或解释
+2. 工具调用格式：[ACTION:工具名]参数[/ACTION]
+3. 如果需要操作手机，只输出工具调用
+4. 如果不需要操作，只输出简短的中文回复
+
+【示例】
+用户：打开抖音
+助手：[ACTION:launch_app]抖音[/ACTION]
+
+用户：你好
+助手：你好！有什么可以帮你的吗？""")
                 sb.toString()
             }
             
             ChatTemplate.PHI -> {
-                sb.append("<|system|>\n")
-                sb.append("你是一个Android手机控制助手。\n\n")
-                sb.append("你只能使用以下工具来操控手机：\n")
-                sb.append("1. launch_app - 打开应用，参数是应用名称\n")
-                sb.append("2. click_text - 点击文字，参数是屏幕上显示的文字\n")
-                sb.append("3. input_text - 输入文字，参数是要输入的内容\n")
-                sb.append("4. go_back - 返回上一页\n")
-                sb.append("5. go_home - 返回手机主页\n\n")
-                sb.append("【重要规则】\n")
-                sb.append("1. 只生成你的回复，不要生成用户说的话\n")
-                sb.append("2. 不要使用任何前缀\n")
-                sb.append("3. 不要重复已经说过的内容\n")
-                sb.append("4. 如果需要操作手机，只输出工具调用\n")
-                sb.append("5. 如果不需要操作，直接用中文回答\n\n")
-                sb.append("【格式要求】\n")
-                sb.append("工具调用格式：[ACTION:工具名]参数[/ACTION]\n")
-                sb.append("示例1 - 用户说\"打开抖音\"：\n")
-                sb.append("[ACTION:launch_app]抖音[/ACTION]\n\n")
-                sb.append("示例2 - 用户说\"你好\"（不需要操作）：\n")
-                sb.append("你好！有什么我可以帮助你的吗？\n")
-                sb.append("<|end|>\n")
+                sb.append("""你是一个Android手机控制助手，只能通过工具操作手机。
+
+【可用工具】
+1. launch_app - 打开应用，参数：应用名称
+2. click_text - 点击文字，参数：屏幕上显示的文字
+3. input_text - 输入文字，参数：要输入的内容
+4. go_back - 返回上一页
+5. go_home - 返回手机主页
+
+【重要规则】
+1. 只输出工具调用，不要有任何前缀、标题或解释
+2. 工具调用格式：[ACTION:工具名]参数[/ACTION]
+3. 如果需要操作手机，只输出工具调用
+4. 如果不需要操作，只输出简短的中文回复
+
+【示例】
+用户：打开抖音
+助手：[ACTION:launch_app]抖音[/ACTION]""")
                 sb.toString()
             }
             
             ChatTemplate.GEMMA -> {
-                sb.append("<start_of_turn>system\n")
-                sb.append("你是一个Android手机控制助手。\n\n")
-                sb.append("你只能使用以下工具来操控手机：\n")
-                sb.append("1. launch_app - 打开应用，参数是应用名称\n")
-                sb.append("2. click_text - 点击文字，参数是屏幕上显示的文字\n")
-                sb.append("3. input_text - 输入文字，参数是要输入的内容\n")
-                sb.append("4. go_back - 返回上一页\n")
-                sb.append("5. go_home - 返回手机主页\n\n")
-                sb.append("【重要规则】\n")
-                sb.append("1. 只生成你的回复，不要生成用户说的话\n")
-                sb.append("2. 不要使用任何前缀\n")
-                sb.append("3. 不要重复已经说过的内容\n")
-                sb.append("4. 如果需要操作手机，只输出工具调用\n")
-                sb.append("5. 如果不需要操作，直接用中文回答\n\n")
-                sb.append("【格式要求】\n")
-                sb.append("工具调用格式：[ACTION:工具名]参数[/ACTION]\n")
-                sb.append("示例1 - 用户说\"打开抖音\"：\n")
-                sb.append("[ACTION:launch_app]抖音[/ACTION]\n\n")
-                sb.append("示例2 - 用户说\"你好\"（不需要操作）：\n")
-                sb.append("你好！有什么我可以帮助你的吗？\n")
-                sb.append("<end_of_turn>\n")
+                sb.append("""你是一个Android手机控制助手，只能通过工具操作手机。
+
+【可用工具】
+1. launch_app - 打开应用，参数：应用名称
+2. click_text - 点击文字，参数：屏幕上显示的文字
+3. go_back - 返回上一页
+4. go_home - 返回手机主页
+
+【重要规则】
+1. 只输出工具调用，不要有任何前缀、标题或解释
+2. 工具调用格式：[ACTION:工具名]参数[/ACTION]
+3. 如果需要操作手机，只输出工具调用
+4. 如果不需要操作，只输出简短的中文回复
+
+【示例】
+用户：打开抖音
+助手：[ACTION:launch_app]抖音[/ACTION]""")
                 sb.toString()
             }
             
             ChatTemplate.MISTRAL -> {
-                sb.append("你是一个Android手机控制助手。\n\n")
-                sb.append("你只能使用以下工具来操控手机：\n")
-                sb.append("1. launch_app - 打开应用，参数是应用名称\n")
-                sb.append("2. click_text - 点击文字，参数是屏幕上显示的文字\n")
-                sb.append("3. input_text - 输入文字，参数是要输入的内容\n")
-                sb.append("4. go_back - 返回上一页\n")
-                sb.append("5. go_home - 返回手机主页\n\n")
-                sb.append("【重要规则】\n")
-                sb.append("1. 只生成你的回复，不要生成用户说的话\n")
-                sb.append("2. 不要使用任何前缀\n")
-                sb.append("3. 不要重复已经说过的内容\n")
-                sb.append("4. 如果需要操作手机，只输出工具调用\n")
-                sb.append("5. 如果不需要操作，直接用中文回答\n\n")
-                sb.append("【格式要求】\n")
-                sb.append("工具调用格式：[ACTION:工具名]参数[/ACTION]\n")
-                sb.append("示例1 - 用户说\"打开抖音\"：\n")
-                sb.append("[ACTION:launch_app]抖音[/ACTION]\n\n")
-                sb.append("示例2 - 用户说\"你好\"（不需要操作）：\n")
-                sb.append("你好！有什么我可以帮助你的吗？\n")
+                sb.append("""你是一个Android手机控制助手，只能通过工具操作手机。
+
+【可用工具】
+1. launch_app - 打开应用，参数：应用名称
+2. click_text - 点击文字，参数：屏幕上显示的文字
+3. go_back - 返回上一页
+4. go_home - 返回手机主页
+
+【重要规则】
+1. 只输出工具调用，不要有任何前缀、标题或解释
+2. 工具调用格式：[ACTION:工具名]参数[/ACTION]
+3. 如果需要操作手机，只输出工具调用
+4. 如果不需要操作，只输出简短的中文回复
+
+【示例】
+用户：打开抖音
+助手：[ACTION:launch_app]抖音[/ACTION]""")
                 sb.toString()
             }
         }
