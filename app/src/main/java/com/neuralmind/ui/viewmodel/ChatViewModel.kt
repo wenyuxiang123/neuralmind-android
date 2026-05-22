@@ -504,7 +504,7 @@ class ChatViewModel @Inject constructor(
         val template = ChatTemplate.fromModelId(modelId)
         val sb = StringBuilder()
         
-        val systemContent = buildSystemPrompt()
+        val systemContent = buildSystemPrompt(template)
         sb.append(formatMessage(template, "system", systemContent))
         
         val systemPromptTokens = estimateTokenCount(sb.toString())
@@ -541,54 +541,133 @@ class ChatViewModel @Inject constructor(
         return sb.toString()
     }
     
-    private suspend fun buildSystemPrompt(): String {
+    private suspend fun buildSystemPrompt(template: ChatTemplate): String {
         val sb = StringBuilder()
         
-        sb.append("<|im_start|>system\n")
-        sb.append("你是一个Android手机控制助手。\n\n")
-        sb.append("你只能使用以下工具来操控手机：\n")
-        sb.append("1. launch_app - 打开应用，参数是应用名称\n")
-        sb.append("2. click_text - 点击文字，参数是屏幕上显示的文字\n")
-        sb.append("3. input_text - 输入文字，参数是要输入的内容\n")
-        sb.append("4. go_back - 返回上一页\n")
-        sb.append("5. go_home - 返回手机主页\n\n")
-        sb.append("【重要规则】\n")
-        sb.append("1. 只生成你（助手）的回复，不要生成用户说的话\n")
-        sb.append("2. 不要使用 \"Human:\" 或 \"human:\" 等前缀\n")
-        sb.append("3. 不要重复已经说过的内容\n")
-        sb.append("4. 如果需要操作手机，只输出工具调用\n")
-        sb.append("5. 如果不需要操作，直接用中文回答\n\n")
-        sb.append("【格式要求】\n")
-        sb.append("工具调用格式：[ACTION:工具名]参数[/ACTION]\n")
-        sb.append("示例1 - 用户说\"打开抖音\"：\n")
-        sb.append("[ACTION:launch_app]抖音[/ACTION]\n\n")
-        sb.append("示例2 - 用户说\"点击确定\"：\n")
-        sb.append("[ACTION:click_text]确定[/ACTION]\n\n")
-        sb.append("示例3 - 用户说\"返回\"：\n")
-        sb.append("[ACTION:go_back][/ACTION]\n\n")
-        sb.append("示例4 - 用户说\"你好\"（不需要操作）：\n")
-        sb.append("你好！有什么我可以帮助你的吗？\n")
-        sb.append("<|im_end|>\n")
-        
-        val activeSkillPrompts = try { skillRepository.getActiveSystemPrompts() } catch (e: Exception) { "" }
-        if (activeSkillPrompts.isNotBlank()) {
-            sb.append(activeSkillPrompts)
-        }
-        
-        val activeMemories = try { memoryRepository.getActiveMemoriesSnapshot() } catch (e: Exception) { emptyList() }
-        if (activeMemories.isNotEmpty()) {
-            val relevantMemories = activeMemories
-                .sortedByDescending { it.importance }
-                .take(3)
-            if (relevantMemories.isNotEmpty()) {
-                sb.append("\n【用户信息】\n")
-                relevantMemories.forEach { memory ->
-                    sb.append("- ${memory.content}\n")
-                }
+        return when (template) {
+            ChatTemplate.CHATML -> {
+                sb.append("<|im_start|>system\n")
+                sb.append("你是一个Android手机控制助手。\n\n")
+                sb.append("你只能使用以下工具来操控手机：\n")
+                sb.append("1. launch_app - 打开应用，参数是应用名称\n")
+                sb.append("2. click_text - 点击文字，参数是屏幕上显示的文字\n")
+                sb.append("3. input_text - 输入文字，参数是要输入的内容\n")
+                sb.append("4. go_back - 返回上一页\n")
+                sb.append("5. go_home - 返回手机主页\n\n")
+                sb.append("【重要规则】\n")
+                sb.append("1. 只生成你的回复，不要生成用户说的话\n")
+                sb.append("2. 不要使用任何前缀（如 Human:、user: 等）\n")
+                sb.append("3. 不要重复已经说过的内容\n")
+                sb.append("4. 如果需要操作手机，只输出工具调用\n")
+                sb.append("5. 如果不需要操作，直接用中文回答\n\n")
+                sb.append("【格式要求】\n")
+                sb.append("工具调用格式：[ACTION:工具名]参数[/ACTION]\n")
+                sb.append("示例1 - 用户说\"打开抖音\"：\n")
+                sb.append("[ACTION:launch_app]抖音[/ACTION]\n\n")
+                sb.append("示例2 - 用户说\"你好\"（不需要操作）：\n")
+                sb.append("你好！有什么我可以帮助你的吗？\n")
+                sb.append("<|im_end|>\n")
+                sb.toString()
+            }
+            
+            ChatTemplate.LLAMA3 -> {
+                sb.append("<|start_header_id|>system<|end_header_id|>\n\n")
+                sb.append("你是一个Android手机控制助手。\n\n")
+                sb.append("你只能使用以下工具来操控手机：\n")
+                sb.append("1. launch_app - 打开应用，参数是应用名称\n")
+                sb.append("2. click_text - 点击文字，参数是屏幕上显示的文字\n")
+                sb.append("3. input_text - 输入文字，参数是要输入的内容\n")
+                sb.append("4. go_back - 返回上一页\n")
+                sb.append("5. go_home - 返回手机主页\n\n")
+                sb.append("【重要规则】\n")
+                sb.append("1. 只生成你的回复，不要生成用户说的话\n")
+                sb.append("2. 不要使用任何前缀（如 Human:、user: 等）\n")
+                sb.append("3. 不要重复已经说过的内容\n")
+                sb.append("4. 如果需要操作手机，只输出工具调用\n")
+                sb.append("5. 如果不需要操作，直接用中文回答\n\n")
+                sb.append("【格式要求】\n")
+                sb.append("工具调用格式：[ACTION:工具名]参数[/ACTION]\n")
+                sb.append("示例1 - 用户说\"打开抖音\"：\n")
+                sb.append("[ACTION:launch_app]抖音[/ACTION]\n\n")
+                sb.append("示例2 - 用户说\"你好\"（不需要操作）：\n")
+                sb.append("你好！有什么我可以帮助你的吗？\n")
+                sb.append("<|eot_id|>\n")
+                sb.toString()
+            }
+            
+            ChatTemplate.PHI -> {
+                sb.append("<|system|>\n")
+                sb.append("你是一个Android手机控制助手。\n\n")
+                sb.append("你只能使用以下工具来操控手机：\n")
+                sb.append("1. launch_app - 打开应用，参数是应用名称\n")
+                sb.append("2. click_text - 点击文字，参数是屏幕上显示的文字\n")
+                sb.append("3. input_text - 输入文字，参数是要输入的内容\n")
+                sb.append("4. go_back - 返回上一页\n")
+                sb.append("5. go_home - 返回手机主页\n\n")
+                sb.append("【重要规则】\n")
+                sb.append("1. 只生成你的回复，不要生成用户说的话\n")
+                sb.append("2. 不要使用任何前缀\n")
+                sb.append("3. 不要重复已经说过的内容\n")
+                sb.append("4. 如果需要操作手机，只输出工具调用\n")
+                sb.append("5. 如果不需要操作，直接用中文回答\n\n")
+                sb.append("【格式要求】\n")
+                sb.append("工具调用格式：[ACTION:工具名]参数[/ACTION]\n")
+                sb.append("示例1 - 用户说\"打开抖音\"：\n")
+                sb.append("[ACTION:launch_app]抖音[/ACTION]\n\n")
+                sb.append("示例2 - 用户说\"你好\"（不需要操作）：\n")
+                sb.append("你好！有什么我可以帮助你的吗？\n")
+                sb.append("<|end|>\n")
+                sb.toString()
+            }
+            
+            ChatTemplate.GEMMA -> {
+                sb.append("<start_of_turn>system\n")
+                sb.append("你是一个Android手机控制助手。\n\n")
+                sb.append("你只能使用以下工具来操控手机：\n")
+                sb.append("1. launch_app - 打开应用，参数是应用名称\n")
+                sb.append("2. click_text - 点击文字，参数是屏幕上显示的文字\n")
+                sb.append("3. input_text - 输入文字，参数是要输入的内容\n")
+                sb.append("4. go_back - 返回上一页\n")
+                sb.append("5. go_home - 返回手机主页\n\n")
+                sb.append("【重要规则】\n")
+                sb.append("1. 只生成你的回复，不要生成用户说的话\n")
+                sb.append("2. 不要使用任何前缀\n")
+                sb.append("3. 不要重复已经说过的内容\n")
+                sb.append("4. 如果需要操作手机，只输出工具调用\n")
+                sb.append("5. 如果不需要操作，直接用中文回答\n\n")
+                sb.append("【格式要求】\n")
+                sb.append("工具调用格式：[ACTION:工具名]参数[/ACTION]\n")
+                sb.append("示例1 - 用户说\"打开抖音\"：\n")
+                sb.append("[ACTION:launch_app]抖音[/ACTION]\n\n")
+                sb.append("示例2 - 用户说\"你好\"（不需要操作）：\n")
+                sb.append("你好！有什么我可以帮助你的吗？\n")
+                sb.append("<end_of_turn>\n")
+                sb.toString()
+            }
+            
+            ChatTemplate.MISTRAL -> {
+                sb.append("你是一个Android手机控制助手。\n\n")
+                sb.append("你只能使用以下工具来操控手机：\n")
+                sb.append("1. launch_app - 打开应用，参数是应用名称\n")
+                sb.append("2. click_text - 点击文字，参数是屏幕上显示的文字\n")
+                sb.append("3. input_text - 输入文字，参数是要输入的内容\n")
+                sb.append("4. go_back - 返回上一页\n")
+                sb.append("5. go_home - 返回手机主页\n\n")
+                sb.append("【重要规则】\n")
+                sb.append("1. 只生成你的回复，不要生成用户说的话\n")
+                sb.append("2. 不要使用任何前缀\n")
+                sb.append("3. 不要重复已经说过的内容\n")
+                sb.append("4. 如果需要操作手机，只输出工具调用\n")
+                sb.append("5. 如果不需要操作，直接用中文回答\n\n")
+                sb.append("【格式要求】\n")
+                sb.append("工具调用格式：[ACTION:工具名]参数[/ACTION]\n")
+                sb.append("示例1 - 用户说\"打开抖音\"：\n")
+                sb.append("[ACTION:launch_app]抖音[/ACTION]\n\n")
+                sb.append("示例2 - 用户说\"你好\"（不需要操作）：\n")
+                sb.append("你好！有什么我可以帮助你的吗？\n")
+                sb.toString()
             }
         }
-        
-        return sb.toString()
     }
     
     fun clearPromptCache() {
