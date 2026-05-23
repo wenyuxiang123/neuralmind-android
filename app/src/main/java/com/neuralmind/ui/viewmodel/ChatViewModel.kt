@@ -262,13 +262,17 @@ class ChatViewModel @Inject constructor(
         Logger.d(Logger.Tags.VM, "generateWithToolLoop: userInput='${userInput.take(50)}...'")
         Logger.d(Logger.Tags.VM, "generateWithToolLoop: promptLength=${initialPrompt.length}, promptTokens=${estimateTokenCount(initialPrompt)}")
         
+        val startTime = System.currentTimeMillis()
+        val maxTotalTimeMs = 5 * 60 * 1000L // 5分钟总时间限制
+        val maxIterations = 20 // 增加到20次迭代
+        
         lastExecutedTools.clear()
         
         var currentPrompt = initialPrompt
-        val maxIterations = 2
         var iteration = 0
         var allDisplayText = ""
         var originalAiResponse = ""
+        var consecutiveNoToolCalls = 0
         
         Logger.d(Logger.Tags.VM, "generateWithToolLoop: starting inference timeout (120s)")
         memoryMonitor.startInferenceTimeout(120_000L)
@@ -276,6 +280,15 @@ class ChatViewModel @Inject constructor(
         while (iteration < maxIterations) {
             iteration++
             Logger.i(Logger.Tags.VM, "--- Iteration $iteration/$maxIterations ---")
+            
+            // 检查总时间限制
+            val totalElapsed = System.currentTimeMillis() - startTime
+            if (totalElapsed > maxTotalTimeMs) {
+                Logger.w(Logger.Tags.VM, "generateWithToolLoop: total time limit (${maxTotalTimeMs/1000}s) reached")
+                finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
+                return
+            }
+            
             var tempResponse = ""
             var tokenCount = 0
             
@@ -353,18 +366,34 @@ class ChatViewModel @Inject constructor(
             val (cleanText, toolCalls) = deviceToolExecutor.parseToolCalls(response)
             Logger.i(Logger.Tags.VM, "generateWithToolLoop: parsed ${toolCalls.size} tool calls, cleanText=${cleanText.length} chars")
             
+            // 检查是否需要停止
             if (toolCalls.isEmpty()) {
-                Logger.i(Logger.Tags.VM, "generateWithToolLoop: no tool calls found, finalizing response")
-                val safeCleanText = if (cleanText.length > maxResponseLength) {
-                    cleanText.take(maxResponseLength)
-                } else {
-                    cleanText
+                consecutiveNoToolCalls++
+                Logger.w(Logger.Tags.VM, "generateWithToolLoop: no tool calls (consecutive: $consecutiveNoToolCalls)")
+                
+                // 连续2次没有工具调用才停止
+                if (consecutiveNoToolCalls >= 2) {
+                    Logger.i(Logger.Tags.VM, "generateWithToolLoop: no tool calls for 2 iterations, finalizing response")
+                    val safeCleanText = if (cleanText.length > maxResponseLength) {
+                        cleanText.take(maxResponseLength)
+                    } else {
+                        cleanText
+                    }
+                    allDisplayText += safeCleanText
+                    originalAiResponse += cleanText
+                    finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
+                    return
                 }
-                allDisplayText += safeCleanText
+                
+                // 只有1次没有工具调用，继续循环（给模型第二次机会）
+                Logger.i(Logger.Tags.VM, "generateWithToolLoop: giving model another chance...")
+                allDisplayText += cleanText + "\n"
                 originalAiResponse += cleanText
-                finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
-                return
+                continue
             }
+            
+            // 有工具调用，重置计数器
+            consecutiveNoToolCalls = 0
             
             Logger.i(Logger.Tags.VM, "Found ${toolCalls.size} tool calls, executing...")
             toolCalls.forEachIndexed { index, call ->
@@ -394,7 +423,9 @@ class ChatViewModel @Inject constructor(
                 lastExecutedTools.add(toolKey)
                 hasNewToolExecution = true
                 
-                toolResults.append("${call.name}(${call.params}): ${result.message}\n")
+                // 压缩工具结果，减少上下文占用
+                val compressedResult = compressToolResult(result.message)
+                toolResults.append(compressedResult).append("\n")
             }
             
             allDisplayText += toolResults.toString()
@@ -422,6 +453,23 @@ class ChatViewModel @Inject constructor(
         Logger.w(Logger.Tags.VM, "generateWithToolLoop: max iterations ($maxIterations) reached")
         finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
         Logger.i(Logger.Tags.VM, "=== generateWithToolLoop END ===")
+    }
+    
+    // 压缩工具结果，减少上下文占用
+    private fun compressToolResult(result: String): String {
+        return when {
+            result.startsWith("已打开应用:") -> "✓ 已打开"
+            result.startsWith("已返回") -> "✓ 返回"
+            result.startsWith("已回到主页") -> "✓ 主页"
+            result.startsWith("已点击") -> "✓ 点击"
+            result.startsWith("已输入") -> "✓ 输入"
+            result.startsWith("已滑动") -> "✓ 滑动"
+            result.startsWith("未找到") -> "✗ 未找到"
+            else -> {
+                val shortResult = result.take(30)
+                if (result.length > 30) "$shortResult..." else shortResult
+            }
+        }
     }
     
     private fun buildToolResultPrompt(
@@ -618,6 +666,11 @@ class ChatViewModel @Inject constructor(
 5. go_home - 返回主页
 6. swipe_up/down/left/right - 滑动屏幕
 7. get_screen - 获取屏幕内容
+
+【重要规则】
+- 可以连续调用多个工具
+- 每次调用后等待工具结果再继续
+- 任务完成后直接回答
 
 【示例】
 用户：打开抖音
