@@ -270,8 +270,8 @@ class ChatViewModel @Inject constructor(
         var allDisplayText = ""
         var originalAiResponse = ""
         
-        Logger.d(Logger.Tags.VM, "generateWithToolLoop: starting inference timeout (60s)")
-        memoryMonitor.startInferenceTimeout(60_000L)
+        Logger.d(Logger.Tags.VM, "generateWithToolLoop: starting inference timeout (120s)")
+        memoryMonitor.startInferenceTimeout(120_000L)
         
         while (iteration < maxIterations) {
             iteration++

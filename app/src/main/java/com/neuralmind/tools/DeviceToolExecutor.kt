@@ -67,6 +67,11 @@ class DeviceToolExecutor @Inject constructor(
             rawCalls.addAll(parseFuzzyToolCalls(text))
         }
         
+        // 3. 还是没有的话，尝试解析冒号格式
+        if (rawCalls.isEmpty()) {
+            rawCalls.addAll(parseColonFormat(text))
+        }
+        
         var cleanText = text
         
         // 移除所有工具调用
@@ -101,6 +106,29 @@ class DeviceToolExecutor @Inject constructor(
             // 清理参数中的无效内容
             params = params.replace(Regex("""\[/?ACTION.*?\]""", RegexOption.IGNORE_CASE), "")
                 .replace(Regex("""assistant|user|human|ai""", RegexOption.IGNORE_CASE), "")
+                .trim()
+            
+            if (toolName.isNotEmpty()) {
+                calls.add(DeviceToolCall(toolName, params))
+            }
+        }
+        
+        return calls
+    }
+    
+    private fun parseColonFormat(text: String): List<DeviceToolCall> {
+        val calls = mutableListOf<DeviceToolCall>()
+        val validTools = VALID_TOOLS.joinToString("|")
+        
+        // 匹配冒号格式：launch_app:抖音 或 launch_app: 抖音
+        val colonPattern = Regex("""(?:^|\n)($validTools):\s*([^\n]+)""", RegexOption.IGNORE_CASE)
+        
+        colonPattern.findAll(text).forEach { match ->
+            val toolName = match.groupValues[1].lowercase()
+            var params = match.groupValues[2].trim()
+            
+            // 清理参数中的无效内容
+            params = params.replace(Regex("""assistant|user|human|ai""", RegexOption.IGNORE_CASE), "")
                 .trim()
             
             if (toolName.isNotEmpty()) {
