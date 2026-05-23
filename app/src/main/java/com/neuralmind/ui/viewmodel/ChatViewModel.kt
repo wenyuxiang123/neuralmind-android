@@ -36,7 +36,8 @@ class ChatViewModel @Inject constructor(
     private val memoryMonitor: MemoryMonitor
 ) : ViewModel() {
     
-    private var lastExecutedTools = mutableSetOf<String>()
+    private var lastExecutedTools = mutableSetOf&lt;String&gt;()
+    private val memToolManager = MemToolManager()
     
     init {
         memoryMonitor.startMonitoring()
@@ -267,6 +268,8 @@ class ChatViewModel @Inject constructor(
         val maxIterations = 20 // 增加到20次迭代
         
         lastExecutedTools.clear()
+        memToolManager.clearAll()
+        memToolManager.addMemory(MemoryType.USER_INPUT, userInput, importance = 3)
         
         var currentPrompt = initialPrompt
         var iteration = 0
@@ -366,6 +369,20 @@ class ChatViewModel @Inject constructor(
             val (cleanText, toolCalls) = deviceToolExecutor.parseToolCalls(response)
             Logger.i(Logger.Tags.VM, "generateWithToolLoop: parsed ${toolCalls.size} tool calls, cleanText=${cleanText.length} chars")
             
+            // 检查是否需要停止 - MemTool 智能停止条件
+            if (memToolManager.shouldStopTask(response)) {
+                Logger.i(Logger.Tags.VM, "generateWithToolLoop: task complete according to MemTool stop conditions")
+                val safeCleanText = if (cleanText.length &gt; maxResponseLength) {
+                    cleanText.take(maxResponseLength)
+                } else {
+                    cleanText
+                }
+                allDisplayText += safeCleanText
+                originalAiResponse += cleanText
+                finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
+                return
+            }
+            
             // 检查是否需要停止
             if (toolCalls.isEmpty()) {
                 consecutiveNoToolCalls++
@@ -389,6 +406,7 @@ class ChatViewModel @Inject constructor(
                 Logger.i(Logger.Tags.VM, "generateWithToolLoop: giving model another chance...")
                 allDisplayText += cleanText + "\n"
                 originalAiResponse += cleanText
+                memToolManager.addMemory(MemoryType.ASSISTANT_RESPONSE, cleanText, importance = 1)
                 continue
             }
             
@@ -404,6 +422,7 @@ class ChatViewModel @Inject constructor(
             
             if (cleanText.isNotBlank()) {
                 allDisplayText += cleanText + "\n"
+                memToolManager.addMemory(MemoryType.ASSISTANT_RESPONSE, cleanText, importance = 1)
             }
             
             val toolResults = StringBuilder()
@@ -413,6 +432,12 @@ class ChatViewModel @Inject constructor(
                 val toolKey = "${call.name}:${call.params}"
                 if (lastExecutedTools.contains(toolKey)) {
                     Logger.w(Logger.Tags.VM, "Skipping duplicate tool execution: $toolKey")
+                    continue
+                }
+                
+                // 检查重复工具调用（1分钟内）
+                if (memToolManager.isDuplicateToolCall(call.name, call.params)) {
+                    Logger.w(Logger.Tags.VM, "Skipping duplicate tool call (recent): $toolKey")
                     continue
                 }
                 
@@ -426,6 +451,10 @@ class ChatViewModel @Inject constructor(
                 // 压缩工具结果，减少上下文占用
                 val compressedResult = compressToolResult(result.message)
                 toolResults.append(compressedResult).append("\n")
+                
+                // 记录到 MemTool
+                memToolManager.addMemory(MemoryType.TOOL_CALL, "${call.name}:${call.params}", importance = 2)
+                memToolManager.addMemory(MemoryType.TOOL_RESULT, result.message, importance = 2)
             }
             
             allDisplayText += toolResults.toString()
