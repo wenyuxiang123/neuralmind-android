@@ -36,7 +36,7 @@ class ChatViewModel @Inject constructor(
     private val memoryMonitor: MemoryMonitor
 ) : ViewModel() {
     
-    private var lastExecutedTools = mutableSetOf&lt;String&gt;()
+    private var lastExecutedTools = mutableSetOf<String>()
     private val memToolManager = MemToolManager()
     
     init {
@@ -372,7 +372,7 @@ class ChatViewModel @Inject constructor(
             // 检查是否需要停止 - MemTool 智能停止条件
             if (memToolManager.shouldStopTask(response)) {
                 Logger.i(Logger.Tags.VM, "generateWithToolLoop: task complete according to MemTool stop conditions")
-                val safeCleanText = if (cleanText.length &gt; maxResponseLength) {
+                val safeCleanText = if (cleanText.length > maxResponseLength) {
                     cleanText.take(maxResponseLength)
                 } else {
                     cleanText
