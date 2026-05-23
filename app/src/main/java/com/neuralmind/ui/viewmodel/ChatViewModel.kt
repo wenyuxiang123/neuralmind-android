@@ -369,21 +369,7 @@ class ChatViewModel @Inject constructor(
             val (cleanText, toolCalls) = deviceToolExecutor.parseToolCalls(response)
             Logger.i(Logger.Tags.VM, "generateWithToolLoop: parsed ${toolCalls.size} tool calls, cleanText=${cleanText.length} chars")
             
-            // 检查是否需要停止 - MemTool 智能停止条件
-            if (memToolManager.shouldStopTask(response)) {
-                Logger.i(Logger.Tags.VM, "generateWithToolLoop: task complete according to MemTool stop conditions")
-                val safeCleanText = if (cleanText.length > maxResponseLength) {
-                    cleanText.take(maxResponseLength)
-                } else {
-                    cleanText
-                }
-                allDisplayText += safeCleanText
-                originalAiResponse += cleanText
-                finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
-                return
-            }
-            
-            // 检查是否需要停止
+            // 检查是否需要停止（先检查是否有工具调用）
             if (toolCalls.isEmpty()) {
                 consecutiveNoToolCalls++
                 Logger.w(Logger.Tags.VM, "generateWithToolLoop: no tool calls (consecutive: $consecutiveNoToolCalls)")
@@ -468,6 +454,13 @@ class ChatViewModel @Inject constructor(
             
             if (!hasNewToolExecution) {
                 Logger.w(Logger.Tags.VM, "generateWithToolLoop: no new tool executions, ending loop")
+                finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
+                return
+            }
+            
+            // 检查是否需要停止 - MemTool 智能停止条件（在工具执行后检查）
+            if (memToolManager.shouldStopTask(response)) {
+                Logger.i(Logger.Tags.VM, "generateWithToolLoop: task complete according to MemTool stop conditions")
                 finalizeResponse(conversation, modelId, userInput, allDisplayText, originalAiResponse)
                 return
             }
