@@ -53,10 +53,16 @@ class DeviceToolExecutor @Inject constructor(
     }
 
     fun parseToolCalls(text: String): Pair<String, List<DeviceToolCall>> {
+        // 先清理掉所有 assistant 前缀
+        var cleanedText = text
+            .replace(Regex("""assistant\s*""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""^\s*assistant\s*""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""assistant$""", RegexOption.IGNORE_CASE), "")
+        
         val rawCalls = mutableListOf<DeviceToolCall>()
         
         // 1. 先尝试用标准正则匹配
-        ACTION_REGEX.findAll(text).forEach { match ->
+        ACTION_REGEX.findAll(cleanedText).forEach { match ->
             val toolName = match.groupValues[1]
             val params = match.groupValues[2].trim()
             rawCalls.add(DeviceToolCall(toolName, params))
@@ -64,18 +70,18 @@ class DeviceToolExecutor @Inject constructor(
         
         // 2. 如果没有匹配到，尝试修复格式错误的工具调用
         if (rawCalls.isEmpty()) {
-            rawCalls.addAll(parseFuzzyToolCalls(text))
+            rawCalls.addAll(parseFuzzyToolCalls(cleanedText))
         }
         
         // 3. 还是没有的话，尝试解析冒号格式
         if (rawCalls.isEmpty()) {
-            rawCalls.addAll(parseColonFormat(text))
+            rawCalls.addAll(parseColonFormat(cleanedText))
         }
         
-        var cleanText = text
+        var cleanText = cleanedText
         
         // 移除所有工具调用
-        ACTION_REGEX.findAll(text).forEach { match ->
+        ACTION_REGEX.findAll(cleanedText).forEach { match ->
             cleanText = cleanText.replace(match.value, "")
         }
         

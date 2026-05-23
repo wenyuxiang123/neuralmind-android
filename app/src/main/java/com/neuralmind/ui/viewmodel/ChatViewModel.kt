@@ -433,40 +433,44 @@ class ChatViewModel @Inject constructor(
         val sb = StringBuilder()
         sb.append(originalPrompt)
         
+        // 简化工具结果，只保留核心信息
+        val simpleResult = toolResult
+            .replace("launch_app(", "")
+            .replace("): 已打开应用: ", "")
+            .replace("go_back(): 已返回", "已返回")
+            .replace("go_home(): 已回到主页", "已回到主页")
+            .replace(")", "")
+        
         return when (template) {
             ChatTemplate.CHATML -> {
                 sb.append("<|im_end|>\n<|im_start|>user\n")
-                sb.append("[Result] ")
-                sb.append(toolResult)
+                sb.append(simpleResult)
                 sb.append("<|im_end|>\n<|im_start|>assistant\n")
                 sb.toString()
             }
             ChatTemplate.LLAMA3 -> {
                 sb.append("<|eot_id|>")
                 sb.append("<|start_header_id|>user<|end_header_id|>\n\n")
-                sb.append("[Result] ")
-                sb.append(toolResult)
+                sb.append(simpleResult)
                 sb.append("<|eot_id|>")
                 sb.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
                 sb.toString()
             }
             ChatTemplate.PHI -> {
                 sb.append("<|end|>\n<|user|>\n")
-                sb.append("[Result] ")
-                sb.append(toolResult)
+                sb.append(simpleResult)
                 sb.append("<|end|>\n<|assistant|>\n")
                 sb.toString()
             }
             ChatTemplate.GEMMA -> {
                 sb.append("<end_of_turn>\n<start_of_turn>user\n")
-                sb.append("[Result] ")
-                sb.append(toolResult)
+                sb.append(simpleResult)
                 sb.append("<end_of_turn>\n<start_of_turn>model\n")
                 sb.toString()
             }
             ChatTemplate.MISTRAL -> {
-                sb.append("[/INST]\n[INST] [Result] ")
-                sb.append(toolResult)
+                sb.append("[/INST]\n[INST] ")
+                sb.append(simpleResult)
                 sb.append(" [/INST]")
                 sb.toString()
             }
@@ -599,40 +603,28 @@ class ChatViewModel @Inject constructor(
             }
             
             ChatTemplate.LLAMA3 -> {
-                sb.append("""你是一个Android手机控制助手，只能通过工具操作手机。
+                sb.append("""你是Android手机控制助手，只能用工具操作手机。
 
-【工具调用格式 - 必须严格遵守】
+【工具调用格式】
 正确格式：[ACTION:launch_app]抖音[/ACTION]
-错误格式：launch_app:抖音 或 launch_app(抖音) 或 <tool_call>
-- 工具名用方括号括起来
-- 参数用方括号括起来
-- 不要使用冒号、圆括号或其他符号
+- 只能用方括号格式
+- 绝对不要输出 "assistant"
 
 【可用工具】
-1. launch_app - 打开应用，参数：应用名称（必填）
-2. click_text - 点击文字，参数：屏幕上显示的文字
-3. input_text - 输入文字，参数：输入框名称|要输入的内容
-4. go_back - 返回上一页（无参数）
-5. go_home - 返回主页（无参数）
-6. swipe_up/down/left/right - 滑动屏幕（无参数）
-7. get_screen - 获取屏幕内容（无参数）
+1. launch_app - 打开应用，参数：应用名称
+2. click_text - 点击文字，参数：屏幕文字
+3. input_text - 输入文字，参数：文字内容
+4. go_back - 返回上一页
+5. go_home - 返回主页
+6. swipe_up/down/left/right - 滑动屏幕
+7. get_screen - 获取屏幕内容
 
-【严格禁止】
-- 禁止输出 "assistant"、"user"、"Human"、"AI" 等任何前缀
-- 禁止使用冒号格式（如 launch_app:抖音）
-- 禁止使用圆括号格式（如 launch_app(抖音)）
-- 禁止输出任何解释、标题或多余文字
-- 禁止重复之前的对话或示例
-
-【正确示例】
+【示例】
 用户：打开抖音
 [ACTION:launch_app]抖音[/ACTION]
 
-用户：返回
-[ACTION:go_back][/ACTION]
-
 用户：你好
-你好！有什么可以帮你的吗？""")
+你好！""")
                 sb.toString()
             }
             
