@@ -571,7 +571,7 @@ class ChatViewModel @Inject constructor(
         val template = ChatTemplate.fromModelId(modelId)
         val sb = StringBuilder()
         
-        val systemContent = buildSystemPrompt(template)
+        val systemContent = buildSystemPrompt(template, userInput)
         sb.append(formatMessage(template, "system", systemContent))
         
         val systemPromptTokens = estimateTokenCount(sb.toString())
@@ -608,8 +608,10 @@ class ChatViewModel @Inject constructor(
         return sb.toString()
     }
     
-    private suspend fun buildSystemPrompt(template: ChatTemplate): String {
+    private suspend fun buildSystemPrompt(template: ChatTemplate, userInput: String = ""): String {
         val sb = StringBuilder()
+        val selectedTools = ToolRegistry.selectToolsForUserInput(userInput)
+        val toolsList = ToolRegistry.buildToolsList(selectedTools)
         
         return when (template) {
             ChatTemplate.CHATML -> {
@@ -623,13 +625,7 @@ class ChatViewModel @Inject constructor(
 - 不要使用冒号、圆括号或其他符号
 
 【可用工具】
-1. launch_app - 打开应用，参数：应用名称（必填）
-2. click_text - 点击文字，参数：屏幕上显示的文字
-3. input_text - 输入文字，参数：输入框名称|要输入的内容
-4. go_back - 返回上一页（无参数）
-5. go_home - 返回主页（无参数）
-6. swipe_up/down/left/right - 滑动屏幕（无参数）
-7. get_screen - 获取屏幕内容（无参数）
+${toolsList}
 
 【严格禁止】
 - 禁止输出 "assistant"、"user"、"Human"、"AI" 等任何前缀
@@ -637,6 +633,11 @@ class ChatViewModel @Inject constructor(
 - 禁止使用圆括号格式（如 launch_app(抖音)）
 - 禁止输出任何解释、标题或多余文字
 - 禁止重复之前的对话或示例
+
+【重要规则】
+- 可以连续调用多个工具
+- 每次调用后等待工具结果再继续
+- 任务完成后直接回答
 
 【正确示例】
 用户：打开抖音
@@ -659,13 +660,7 @@ class ChatViewModel @Inject constructor(
 - 绝对不要输出 "assistant"
 
 【可用工具】
-1. launch_app - 打开应用，参数：应用名称
-2. click_text - 点击文字，参数：屏幕文字
-3. input_text - 输入文字，参数：文字内容
-4. go_back - 返回上一页
-5. go_home - 返回主页
-6. swipe_up/down/left/right - 滑动屏幕
-7. get_screen - 获取屏幕内容
+${toolsList}
 
 【重要规则】
 - 可以连续调用多个工具
@@ -689,15 +684,16 @@ class ChatViewModel @Inject constructor(
 错误格式：launch_app:抖音 或 launch_app(抖音)
 
 【可用工具】
-1. launch_app - 打开应用，参数：应用名称
-2. click_text - 点击文字，参数：屏幕上显示的文字
-3. input_text - 输入文字，参数：输入框名称|要输入的内容
-4. go_back - 返回上一页（无参数）
-5. go_home - 返回主页（无参数）
+${toolsList}
 
 【严格禁止】
 - 禁止输出 "assistant"、冒号格式、圆括号格式
 - 禁止输出任何前缀、解释或多余文字
+
+【重要规则】
+- 可以连续调用多个工具
+- 每次调用后等待工具结果再继续
+- 任务完成后直接回答
 
 【示例】
 用户：打开抖音
@@ -713,14 +709,16 @@ class ChatViewModel @Inject constructor(
 错误格式：launch_app:抖音 或 launch_app(抖音)
 
 【可用工具】
-1. launch_app - 打开应用，参数：应用名称
-2. click_text - 点击文字，参数：屏幕上显示的文字
-3. go_back - 返回上一页（无参数）
-4. go_home - 返回主页（无参数）
+${toolsList}
 
 【严格禁止】
 - 禁止输出 "assistant"、冒号格式、圆括号格式
 - 禁止输出任何前缀、解释或多余文字
+
+【重要规则】
+- 可以连续调用多个工具
+- 每次调用后等待工具结果再继续
+- 任务完成后直接回答
 
 【示例】
 用户：打开抖音
@@ -736,14 +734,16 @@ class ChatViewModel @Inject constructor(
 错误格式：launch_app:抖音 或 launch_app(抖音)
 
 【可用工具】
-1. launch_app - 打开应用，参数：应用名称
-2. click_text - 点击文字，参数：屏幕上显示的文字
-3. go_back - 返回上一页（无参数）
-4. go_home - 返回主页（无参数）
+${toolsList}
 
 【严格禁止】
 - 禁止输出 "assistant"、冒号格式、圆括号格式
 - 禁止输出任何前缀、解释或多余文字
+
+【重要规则】
+- 可以连续调用多个工具
+- 每次调用后等待工具结果再继续
+- 任务完成后直接回答
 
 【示例】
 用户：打开抖音
