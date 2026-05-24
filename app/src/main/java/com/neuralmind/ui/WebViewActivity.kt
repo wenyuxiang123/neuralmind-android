@@ -17,6 +17,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.neuralmind.R
 import com.neuralmind.core.Logger
 
 class WebViewActivity : AppCompatActivity() {
@@ -93,7 +94,7 @@ class WebViewActivity : AppCompatActivity() {
             loadWithOverviewMode = true
             useWideViewPort = true
             
-            // 安全：混合内容模式（仅允许 HTTPS）
+            // 安全：混合内容模式（仅允许HTTPS）
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             
             // 安全：禁用文件访问（防止本地文件泄露）
@@ -376,8 +377,10 @@ class WebViewActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("⚠️ 安全警告")
             .setMessage("$errorMessage\n\n是否继续访问此网站？")
-            .setPositiveButton("继续（不安全）") { _, _ -> onProceed(true) }
-            .setNegativeButton("取消") { _, _ -> onProceed(false) }
+            .setPositiveButton("继续（不安全）") { _, _ -> onProceed(true)
+            }
+            .setNegativeButton("取消") { _, _ -> onProceed(false)
+            }
             .setCancelable(false)
             .show()
     }

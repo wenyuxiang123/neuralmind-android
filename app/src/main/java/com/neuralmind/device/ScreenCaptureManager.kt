@@ -98,7 +98,7 @@ class ScreenCaptureManager @Inject constructor(
                 width,
                 height,
                 displayMetrics.densityDpi,
-                android.app.ActivityManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 imageReader!!.surface,
                 null,
                 Handler(Looper.getMainLooper())

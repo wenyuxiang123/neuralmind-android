@@ -62,7 +62,7 @@ fun AccelerationSettingsScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(
-                                Icons.Default.Cpu,
+                                Icons.Default.Memory,
                                 contentDescription = "当前加速",
                                 modifier = Modifier.size(48.dp),
                                 tint = MaterialTheme.colorScheme.primary
@@ -185,8 +185,8 @@ fun AccelerationCard(
                     AccelerationType.CPU -> Icons.Default.Memory
                     AccelerationType.GPU_OPENCL -> Icons.Default.GraphicEq
                     AccelerationType.GPU_VULKAN -> Icons.Default.Layers
-                    AccelerationType.NPU_HEXAGON -> Icons.Default.Brain
-                    AccelerationType.NPU_NNAPI -> Icons.Default.Cell
+                    AccelerationType.NPU_HEXAGON -> Icons.Default.Memory
+                    AccelerationType.NPU_NNAPI -> Icons.Default.Devices
                     AccelerationType.AUTO -> Icons.Default.AutoAwesome
                 },
                 contentDescription = accelerator.name,
@@ -211,15 +211,11 @@ fun AccelerationCard(
                     )
                     if (accelerator.recommended) {
                         Spacer(modifier = Modifier.width(8.dp))
-                        Chip(
-                            onClick = {},
-                            modifier = Modifier.height(24.dp)
-                        ) {
-                            Text(
-                                text = "推荐",
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
+                        Text(
+                            text = "推荐",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))

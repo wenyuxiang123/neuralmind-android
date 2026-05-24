@@ -190,10 +190,10 @@ class HardwareAccelerationManager @Inject constructor(
             ?: detectedAccelerators.first { it.type == AccelerationType.CPU }
     }
     
-    suspend fun applyAcceleration(engine: LlamaEngine): Boolean = withContext(Dispatchers.IO) {
+    fun applyAcceleration(engine: LlamaEngine): Boolean {
         Logger.i(Logger.Tags.ENGINE, "Applying acceleration: $selectedAccelerator")
         
-        return@withContext try {
+        return try {
             when (selectedAccelerator) {
                 AccelerationType.CPU -> applyCPU()
                 AccelerationType.GPU_OPENCL -> applyGPUOpenCL()
