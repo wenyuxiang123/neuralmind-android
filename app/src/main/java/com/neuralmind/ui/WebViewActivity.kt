@@ -12,6 +12,7 @@ import android.util.Patterns
 import android.view.View
 import android.view.WindowManager
 import android.webkit.*
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.neuralmind.databinding.ActivityWebviewBinding
 import com.neuralmind.core.Logger
@@ -20,10 +21,24 @@ class WebViewActivity : AppCompatActivity() {
     
     private lateinit var binding: ActivityWebviewBinding
     private val handler = Handler(Looper.getMainLooper())
+    private var currentUrl: String? = null
     
     companion object {
         private const val TAG = "WebViewActivity"
         private const val EXTRA_URL = "extra_url"
+        
+        // 安全协议白名单
+        private val SAFE_SCHEMES = setOf("http", "https")
+        
+        // 特殊协议白名单
+        private val ALLOWED_SPECIAL_SCHEMES = setOf("tel", "mailto", "market")
+        
+        // 危险网站黑名单（基础保护）
+        private val DANGEROUS_KEYWORDS = setOf(
+            "phishing", "malware", "virus", "hack", "keylogger",
+            "free-gift", "win-money", "lottery", "click-here",
+            "bank-login", "verify-account", "password", "credit-card"
+        )
         
         fun openUrl(context: android.content.Context, url: String) {
             val intent = Intent(context, WebViewActivity::class.java).apply {
@@ -55,18 +70,44 @@ class WebViewActivity : AppCompatActivity() {
                 displayZoomControls = false
                 loadWithOverviewMode = true
                 useWideViewPort = true
-                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                
+                // 安全：混合内容模式（仅允许 HTTPS）
+                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                
+                // 安全：禁用文件访问（防止本地文件泄露）
+                allowFileAccess = false
+                allowContentAccess = false
+                allowFileAccessFromFileURLs = false
+                allowUniversalAccessFromFileURLs = false
+                
+                // 安全：禁用多窗口
                 setSupportMultipleWindows(false)
-                allowFileAccess = true
-                allowContentAccess = true
+                
+                // 安全：禁用地理定位
+                setGeolocationEnabled(false)
+                
+                // 安全：保存表单数据（可选，提升用户体验）
+                saveFormData = true
+                
+                // 安全：安全浏览（Android 8.0+）
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    safeBrowsingEnabled = true
+                }
             }
             
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     super.onPageStarted(view, url, favicon)
+                    currentUrl = url
                     binding.progressBar.visibility = View.VISIBLE
                     binding.urlText.text = url ?: ""
                     Logger.d(TAG, "Page started: $url")
+                    
+                    // 安全检查：检测潜在危险网站
+                    if (url != null && isPotentiallyDangerous(url)) {
+                        Logger.w(TAG, "Potentially dangerous URL detected: $url")
+                        showSecurityWarning(url)
+                    }
                 }
                 
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -94,51 +135,51 @@ class WebViewActivity : AppCompatActivity() {
                     handler: SslErrorHandler?,
                     error: SslError?
                 ) {
-                    // 对于 SSL 错误，允许继续加载（开发环境常见）
-                    Logger.w(TAG, "SSL error: ${error?.primaryError}, proceeding anyway")
-                    handler?.proceed()
+                    Logger.e(TAG, "SSL error detected: ${error?.primaryError} on ${error?.url}")
+                    
+                    // 安全：SSL 错误时不要自动继续，询问用户
+                    handler?.cancel()
+                    
+                    // 显示安全警告
+                    runOnUiThread {
+                        showSslErrorDialog(error) { proceed ->
+                            if (proceed) {
+                                handler?.proceed()
+                            }
+                        }
+                    }
                 }
                 
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val url = request?.url?.toString() ?: return false
+                    val scheme = request.url?.scheme ?: ""
+                    
+                    Logger.d(TAG, "shouldOverrideUrlLoading: $url, scheme=$scheme")
+                    
+                    // 安全检查：验证协议
+                    if (!isSchemeSafe(scheme)) {
+                        Logger.w(TAG, "Blocked unsafe scheme: $scheme, URL: $url")
+                        return true
+                    }
                     
                     // 处理特殊协议
-                    return when (request.url?.scheme) {
-                        "tel" -> {
-                            // 拨打电话
-                            try {
-                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse(url))
-                                startActivity(intent)
-                            } catch (e: Exception) {
-                                Logger.e(TAG, "Failed to dial: $url", e)
-                            }
-                            true
-                        }
-                        "mailto" -> {
-                            // 发送邮件
-                            try {
-                                val intent = Intent(Intent.ACTION_SENDTO, Uri.parse(url))
-                                startActivity(intent)
-                            } catch (e: Exception) {
-                                Logger.e(TAG, "Failed to send email: $url", e)
-                            }
-                            true
-                        }
-                        "market" -> {
-                            // 应用市场
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                startActivity(intent)
-                            } catch (e: Exception) {
-                                Logger.e(TAG, "Failed to open market: $url", e)
-                            }
-                            true
-                        }
-                        else -> {
-                            // 其他 URL 继续在 WebView 中加载
-                            false
-                        }
+                    if (scheme in ALLOWED_SPECIAL_SCHEMES) {
+                        return handleSpecialScheme(url, scheme)
                     }
+                    
+                    // 安全检查：验证 URL 是否安全
+                    if (!isUrlSafe(url)) {
+                        Logger.w(TAG, "Blocked potentially dangerous URL: $url")
+                        return true
+                    }
+                    
+                    // 安全 URL 继续在 WebView 中加载
+                    return false
+                }
+                
+                override fun onLoadResource(view: WebView?, url: String?) {
+                    super.onLoadResource(view, url)
+                    // 可以在这里添加资源加载的安全检查
                 }
             }
             
@@ -151,6 +192,26 @@ class WebViewActivity : AppCompatActivity() {
                 override fun onReceivedTitle(view: WebView?, title: String?) {
                     super.onReceivedTitle(view, title)
                     title?.let { binding.titleText.text = it }
+                }
+                
+                override fun onJsAlert(
+                    view: WebView?,
+                    url: String?,
+                    message: String?,
+                    result: JsResult?
+                ): Boolean {
+                    Logger.i(TAG, "JavaScript alert: $message from $url")
+                    return super.onJsAlert(view, url, message, result)
+                }
+                
+                override fun onJsConfirm(
+                    view: WebView?,
+                    url: String?,
+                    message: String?,
+                    result: JsResult?
+                ): Boolean {
+                    Logger.i(TAG, "JavaScript confirm: $message from $url")
+                    return super.onJsConfirm(view, url, message, result)
                 }
             }
         }
@@ -171,7 +232,10 @@ class WebViewActivity : AppCompatActivity() {
         
         // 刷新按钮
         binding.refreshButton.setOnClickListener {
-            binding.webView.reload()
+            currentUrl?.let {
+                binding.errorText.visibility = View.GONE
+                binding.webView.reload()
+            }
         }
         
         // 主页按钮
@@ -194,6 +258,111 @@ class WebViewActivity : AppCompatActivity() {
         loadUrl(url)
     }
     
+    // ========== 安全检查方法 ==========
+    
+    private fun isSchemeSafe(scheme: String): Boolean {
+        return scheme in SAFE_SCHEMES || scheme in ALLOWED_SPECIAL_SCHEMES
+    }
+    
+    private fun isUrlSafe(url: String): Boolean {
+        val lowerUrl = url.lowercase()
+        
+        // 检查危险关键词
+        DANGEROUS_KEYWORDS.forEach { keyword ->
+            if (lowerUrl.contains(keyword)) {
+                Logger.w(TAG, "URL contains dangerous keyword: $keyword")
+                return false
+            }
+        }
+        
+        return true
+    }
+    
+    private fun isPotentiallyDangerous(url: String): Boolean {
+        val lowerUrl = url.lowercase()
+        
+        // 检查是否是 HTTPS（除了 localhost 等特殊情况）
+        if (!lowerUrl.startsWith("https://") && 
+            !lowerUrl.contains("localhost") && 
+            !lowerUrl.contains("127.0.0.1") &&
+            !lowerUrl.contains("192.168.") &&
+            !lowerUrl.contains("10.0.") &&
+            !lowerUrl.contains("172.16.")) {
+            Logger.w(TAG, "Non-HTTPS URL: $url")
+        }
+        
+        return false
+    }
+    
+    // ========== 特殊协议处理 ==========
+    
+    private fun handleSpecialScheme(url: String, scheme: String): Boolean {
+        return when (scheme) {
+            "tel" -> {
+                try {
+                    Logger.i(TAG, "Opening dialer: $url")
+                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse(url))
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Logger.e(TAG, "Failed to dial: $url", e)
+                }
+                true
+            }
+            "mailto" -> {
+                try {
+                    Logger.i(TAG, "Opening email: $url")
+                    val intent = Intent(Intent.ACTION_SENDTO, Uri.parse(url))
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Logger.e(TAG, "Failed to send email: $url", e)
+                }
+                true
+            }
+            "market" -> {
+                try {
+                    Logger.i(TAG, "Opening market: $url")
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Logger.e(TAG, "Failed to open market: $url", e)
+                }
+                true
+            }
+            else -> {
+                Logger.w(TAG, "Unhandled special scheme: $scheme")
+                true
+            }
+        }
+    }
+    
+    // ========== 安全对话框 ==========
+    
+    private fun showSecurityWarning(url: String) {
+        binding.errorText.visibility = View.VISIBLE
+        binding.errorText.text = "⚠️ 安全警告：此网站可能不安全，请谨慎访问"
+    }
+    
+    private fun showSslErrorDialog(error: SslError?, onProceed: (Boolean) -> Unit) {
+        val errorMessage = when (error?.primaryError) {
+            SslError.SSL_EXPIRED -> "SSL 证书已过期"
+            SslError.SSL_IDMISMATCH -> "SSL 证书域名不匹配"
+            SslError.SSL_NOTYETVALID -> "SSL 证书尚未生效"
+            SslError.SSL_UNTRUSTED -> "SSL 证书不受信任"
+            SslError.SSL_INVALID -> "SSL 证书无效"
+            else -> "SSL 错误"
+        }
+        
+        AlertDialog.Builder(this)
+            .setTitle("⚠️ 安全警告")
+            .setMessage("$errorMessage\n\n是否继续访问此网站？")
+            .setPositiveButton("继续（不安全）") { _, _ -> onProceed(true) }
+            .setNegativeButton("取消") { _, _ -> onProceed(false) }
+            .setCancelable(false)
+            .show()
+    }
+    
+    // ========== URL 加载 ==========
+    
     private fun loadUrl(url: String) {
         Logger.d(TAG, "Loading URL: $url")
         
@@ -207,6 +376,14 @@ class WebViewActivity : AppCompatActivity() {
             }
         } else {
             url
+        }
+        
+        // 安全检查
+        if (!isUrlSafe(finalUrl)) {
+            Logger.w(TAG, "Blocked loading unsafe URL: $finalUrl")
+            binding.errorText.visibility = View.VISIBLE
+            binding.errorText.text = "⚠️ 已阻止访问潜在危险的网站"
+            return
         }
         
         binding.errorText.visibility = View.GONE
@@ -236,6 +413,8 @@ class WebViewActivity : AppCompatActivity() {
             stopLoading()
             clearHistory()
             clearCache(true)
+            clearFormData()
+            clearSslPreferences()
             loadUrl("about:blank")
             removeAllViews()
             destroy()
