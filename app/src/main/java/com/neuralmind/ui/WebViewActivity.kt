@@ -12,14 +12,26 @@ import android.util.Patterns
 import android.view.View
 import android.view.WindowManager
 import android.webkit.*
+import android.widget.ImageButton
+import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.neuralmind.databinding.ActivityWebviewBinding
 import com.neuralmind.core.Logger
 
 class WebViewActivity : AppCompatActivity() {
     
-    private lateinit var binding: ActivityWebviewBinding
+    private lateinit var webView: WebView
+    private lateinit var progressBar: ProgressBar
+    private lateinit var titleText: TextView
+    private lateinit var urlText: TextView
+    private lateinit var errorText: TextView
+    private lateinit var backButton: ImageButton
+    private lateinit var closeButton: ImageButton
+    private lateinit var homeButton: ImageButton
+    private lateinit var refreshButton: ImageButton
+    private lateinit var shareButton: ImageButton
+    
     private val handler = Handler(Looper.getMainLooper())
     private var currentUrl: String? = null
     
@@ -56,199 +68,208 @@ class WebViewActivity : AppCompatActivity() {
         // 保持屏幕常亮
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         
-        binding = ActivityWebviewBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        setContentView(R.layout.activity_webview)
+        
+        // 初始化视图
+        webView = findViewById(R.id.webView)
+        progressBar = findViewById(R.id.progressBar)
+        titleText = findViewById(R.id.titleText)
+        urlText = findViewById(R.id.urlText)
+        errorText = findViewById(R.id.errorText)
+        backButton = findViewById(R.id.backButton)
+        closeButton = findViewById(R.id.closeButton)
+        homeButton = findViewById(R.id.homeButton)
+        refreshButton = findViewById(R.id.refreshButton)
+        shareButton = findViewById(R.id.shareButton)
         
         // 配置 WebView
-        binding.webView.apply {
-            settings.apply {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                databaseEnabled = true
-                cacheMode = WebSettings.LOAD_DEFAULT
-                builtInZoomControls = true
-                displayZoomControls = false
-                loadWithOverviewMode = true
-                useWideViewPort = true
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            cacheMode = WebSettings.LOAD_DEFAULT
+            builtInZoomControls = true
+            displayZoomControls = false
+            loadWithOverviewMode = true
+            useWideViewPort = true
+            
+            // 安全：混合内容模式（仅允许 HTTPS）
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            
+            // 安全：禁用文件访问（防止本地文件泄露）
+            allowFileAccess = false
+            allowContentAccess = false
+            allowFileAccessFromFileURLs = false
+            allowUniversalAccessFromFileURLs = false
+            
+            // 安全：禁用多窗口
+            setSupportMultipleWindows(false)
+            
+            // 安全：禁用地理定位
+            setGeolocationEnabled(false)
+            
+            // 安全：保存表单数据（可选，提升用户体验）
+            saveFormData = true
+            
+            // 安全：安全浏览（Android 8.0+）
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                safeBrowsingEnabled = true
+            }
+        }
+        
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                currentUrl = url
+                progressBar.visibility = View.VISIBLE
+                urlText.text = url ?: ""
+                Logger.d(TAG, "Page started: $url")
                 
-                // 安全：混合内容模式（仅允许 HTTPS）
-                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                
-                // 安全：禁用文件访问（防止本地文件泄露）
-                allowFileAccess = false
-                allowContentAccess = false
-                allowFileAccessFromFileURLs = false
-                allowUniversalAccessFromFileURLs = false
-                
-                // 安全：禁用多窗口
-                setSupportMultipleWindows(false)
-                
-                // 安全：禁用地理定位
-                setGeolocationEnabled(false)
-                
-                // 安全：保存表单数据（可选，提升用户体验）
-                saveFormData = true
-                
-                // 安全：安全浏览（Android 8.0+）
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    safeBrowsingEnabled = true
+                // 安全检查：检测潜在危险网站
+                if (url != null && isPotentiallyDangerous(url)) {
+                    Logger.w(TAG, "Potentially dangerous URL detected: $url")
+                    showSecurityWarning(url)
                 }
             }
             
-            webViewClient = object : WebViewClient() {
-                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                    super.onPageStarted(view, url, favicon)
-                    currentUrl = url
-                    binding.progressBar.visibility = View.VISIBLE
-                    binding.urlText.text = url ?: ""
-                    Logger.d(TAG, "Page started: $url")
-                    
-                    // 安全检查：检测潜在危险网站
-                    if (url != null && isPotentiallyDangerous(url)) {
-                        Logger.w(TAG, "Potentially dangerous URL detected: $url")
-                        showSecurityWarning(url)
-                    }
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                progressBar.visibility = View.GONE
+                urlText.text = url ?: ""
+                Logger.d(TAG, "Page finished: $url")
+            }
+            
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?
+            ) {
+                super.onReceivedError(view, request, error)
+                if (request?.isForMainFrame == true) {
+                    errorText.visibility = View.VISIBLE
+                    errorText.text = "页面加载失败: ${error?.description}"
+                    Logger.e(TAG, "Page error: ${error?.description}")
                 }
+            }
+            
+            override fun onReceivedSslError(
+                view: WebView?,
+                handler: SslErrorHandler?,
+                error: SslError?
+            ) {
+                Logger.e(TAG, "SSL error detected: ${error?.primaryError} on ${error?.url}")
                 
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    super.onPageFinished(view, url)
-                    binding.progressBar.visibility = View.GONE
-                    binding.urlText.text = url ?: ""
-                    Logger.d(TAG, "Page finished: $url")
-                }
+                // 安全：SSL 错误时不要自动继续，询问用户
+                handler?.cancel()
                 
-                override fun onReceivedError(
-                    view: WebView?,
-                    request: WebResourceRequest?,
-                    error: WebResourceError?
-                ) {
-                    super.onReceivedError(view, request, error)
-                    if (request?.isForMainFrame == true) {
-                        binding.errorText.visibility = View.VISIBLE
-                        binding.errorText.text = "页面加载失败: ${error?.description}"
-                        Logger.e(TAG, "Page error: ${error?.description}")
-                    }
-                }
-                
-                override fun onReceivedSslError(
-                    view: WebView?,
-                    handler: SslErrorHandler?,
-                    error: SslError?
-                ) {
-                    Logger.e(TAG, "SSL error detected: ${error?.primaryError} on ${error?.url}")
-                    
-                    // 安全：SSL 错误时不要自动继续，询问用户
-                    handler?.cancel()
-                    
-                    // 显示安全警告
-                    runOnUiThread {
-                        showSslErrorDialog(error) { proceed ->
-                            if (proceed) {
-                                handler?.proceed()
-                            }
+                // 显示安全警告
+                runOnUiThread {
+                    showSslErrorDialog(error) { proceed ->
+                        if (proceed) {
+                            handler?.proceed()
                         }
                     }
                 }
-                
-                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                    val url = request?.url?.toString() ?: return false
-                    val scheme = request.url?.scheme ?: ""
-                    
-                    Logger.d(TAG, "shouldOverrideUrlLoading: $url, scheme=$scheme")
-                    
-                    // 安全检查：验证协议
-                    if (!isSchemeSafe(scheme)) {
-                        Logger.w(TAG, "Blocked unsafe scheme: $scheme, URL: $url")
-                        return true
-                    }
-                    
-                    // 处理特殊协议
-                    if (scheme in ALLOWED_SPECIAL_SCHEMES) {
-                        return handleSpecialScheme(url, scheme)
-                    }
-                    
-                    // 安全检查：验证 URL 是否安全
-                    if (!isUrlSafe(url)) {
-                        Logger.w(TAG, "Blocked potentially dangerous URL: $url")
-                        return true
-                    }
-                    
-                    // 安全 URL 继续在 WebView 中加载
-                    return false
-                }
-                
-                override fun onLoadResource(view: WebView?, url: String?) {
-                    super.onLoadResource(view, url)
-                    // 可以在这里添加资源加载的安全检查
-                }
             }
             
-            webChromeClient = object : WebChromeClient() {
-                override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                    super.onProgressChanged(view, newProgress)
-                    binding.progressBar.progress = newProgress
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val url = request?.url?.toString() ?: return false
+                val scheme = request.url?.scheme ?: ""
+                
+                Logger.d(TAG, "shouldOverrideUrlLoading: $url, scheme=$scheme")
+                
+                // 安全检查：验证协议
+                if (!isSchemeSafe(scheme)) {
+                    Logger.w(TAG, "Blocked unsafe scheme: $scheme, URL: $url")
+                    return true
                 }
                 
-                override fun onReceivedTitle(view: WebView?, title: String?) {
-                    super.onReceivedTitle(view, title)
-                    title?.let { binding.titleText.text = it }
+                // 处理特殊协议
+                if (scheme in ALLOWED_SPECIAL_SCHEMES) {
+                    return handleSpecialScheme(url, scheme)
                 }
                 
-                override fun onJsAlert(
-                    view: WebView?,
-                    url: String?,
-                    message: String?,
-                    result: JsResult?
-                ): Boolean {
-                    Logger.i(TAG, "JavaScript alert: $message from $url")
-                    return super.onJsAlert(view, url, message, result)
+                // 安全检查：验证 URL 是否安全
+                if (!isUrlSafe(url)) {
+                    Logger.w(TAG, "Blocked potentially dangerous URL: $url")
+                    return true
                 }
                 
-                override fun onJsConfirm(
-                    view: WebView?,
-                    url: String?,
-                    message: String?,
-                    result: JsResult?
-                ): Boolean {
-                    Logger.i(TAG, "JavaScript confirm: $message from $url")
-                    return super.onJsConfirm(view, url, message, result)
-                }
+                // 安全 URL 继续在 WebView 中加载
+                return false
+            }
+            
+            override fun onLoadResource(view: WebView?, url: String?) {
+                super.onLoadResource(view, url)
+                // 可以在这里添加资源加载的安全检查
+            }
+        }
+        
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                super.onProgressChanged(view, newProgress)
+                progressBar.progress = newProgress
+            }
+            
+            override fun onReceivedTitle(view: WebView?, title: String?) {
+                super.onReceivedTitle(view, title)
+                title?.let { titleText.text = it }
+            }
+            
+            override fun onJsAlert(
+                view: WebView?,
+                url: String?,
+                message: String?,
+                result: JsResult?
+            ): Boolean {
+                Logger.i(TAG, "JavaScript alert: $message from $url")
+                return super.onJsAlert(view, url, message, result)
+            }
+            
+            override fun onJsConfirm(
+                view: WebView?,
+                url: String?,
+                message: String?,
+                result: JsResult?
+            ): Boolean {
+                Logger.i(TAG, "JavaScript confirm: $message from $url")
+                return super.onJsConfirm(view, url, message, result)
             }
         }
         
         // 返回按钮
-        binding.backButton.setOnClickListener {
-            if (binding.webView.canGoBack()) {
-                binding.webView.goBack()
+        backButton.setOnClickListener {
+            if (webView.canGoBack()) {
+                webView.goBack()
             } else {
                 finish()
             }
         }
         
         // 关闭按钮
-        binding.closeButton.setOnClickListener {
+        closeButton.setOnClickListener {
             finish()
         }
         
         // 刷新按钮
-        binding.refreshButton.setOnClickListener {
+        refreshButton.setOnClickListener {
             currentUrl?.let {
-                binding.errorText.visibility = View.GONE
-                binding.webView.reload()
+                errorText.visibility = View.GONE
+                webView.reload()
             }
         }
         
         // 主页按钮
-        binding.homeButton.setOnClickListener {
-            binding.webView.loadUrl("https://www.google.com")
+        homeButton.setOnClickListener {
+            webView.loadUrl("https://www.google.com")
         }
         
         // 分享按钮
-        binding.shareButton.setOnClickListener {
+        shareButton.setOnClickListener {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, binding.webView.url ?: "")
-                putExtra(Intent.EXTRA_SUBJECT, binding.titleText.text.toString())
+                putExtra(Intent.EXTRA_TEXT, webView.url ?: "")
+                putExtra(Intent.EXTRA_SUBJECT, titleText.text.toString())
             }
             startActivity(Intent.createChooser(shareIntent, "分享网页"))
         }
@@ -338,8 +359,8 @@ class WebViewActivity : AppCompatActivity() {
     // ========== 安全对话框 ==========
     
     private fun showSecurityWarning(url: String) {
-        binding.errorText.visibility = View.VISIBLE
-        binding.errorText.text = "⚠️ 安全警告：此网站可能不安全，请谨慎访问"
+        errorText.visibility = View.VISIBLE
+        errorText.text = "⚠️ 安全警告：此网站可能不安全，请谨慎访问"
     }
     
     private fun showSslErrorDialog(error: SslError?, onProceed: (Boolean) -> Unit) {
@@ -381,18 +402,18 @@ class WebViewActivity : AppCompatActivity() {
         // 安全检查
         if (!isUrlSafe(finalUrl)) {
             Logger.w(TAG, "Blocked loading unsafe URL: $finalUrl")
-            binding.errorText.visibility = View.VISIBLE
-            binding.errorText.text = "⚠️ 已阻止访问潜在危险的网站"
+            errorText.visibility = View.VISIBLE
+            errorText.text = "⚠️ 已阻止访问潜在危险的网站"
             return
         }
         
-        binding.errorText.visibility = View.GONE
-        binding.webView.loadUrl(finalUrl)
+        errorText.visibility = View.GONE
+        webView.loadUrl(finalUrl)
     }
     
     override fun onBackPressed() {
-        if (binding.webView.canGoBack()) {
-            binding.webView.goBack()
+        if (webView.canGoBack()) {
+            webView.goBack()
         } else {
             super.onBackPressed()
         }
@@ -400,16 +421,16 @@ class WebViewActivity : AppCompatActivity() {
     
     override fun onResume() {
         super.onResume()
-        binding.webView.onResume()
+        webView.onResume()
     }
     
     override fun onPause() {
         super.onPause()
-        binding.webView.onPause()
+        webView.onPause()
     }
     
     override fun onDestroy() {
-        binding.webView.apply {
+        webView.apply {
             stopLoading()
             clearHistory()
             clearCache(true)
