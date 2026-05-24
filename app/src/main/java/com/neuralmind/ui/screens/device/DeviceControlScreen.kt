@@ -13,15 +13,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.neuralmind.device.ScreenCaptureManager
 import com.neuralmind.ui.theme.*
 import com.neuralmind.ui.viewmodel.DeviceViewModel
 
 @Composable
 fun DeviceControlScreen(viewModel: DeviceViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    
     Column(modifier = Modifier.fillMaxSize().background(brush = Brush.verticalGradient(colors = listOf(BackgroundPrimary, Color(0xFF0A1628)))).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(text = "推理引擎", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = GradientStart)
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = GradientStart.copy(alpha = 0.1f)), shape = RoundedCornerShape(12.dp)) {
@@ -30,6 +34,7 @@ fun DeviceControlScreen(viewModel: DeviceViewModel = hiltViewModel()) {
         DarkQuickControlsCard(isWifiEnabled = uiState.isWifiEnabled, isBluetoothEnabled = uiState.isBluetoothEnabled, onOpenWifiSettings = { viewModel.openWifiSettings() }, onOpenBluetoothSettings = { viewModel.openBluetoothSettings() })
         DarkVolumeBrightnessCard(mediaVolume = uiState.mediaVolume, brightness = uiState.brightness, maxMediaVolume = uiState.maxMediaVolume, maxBrightness = 255, onMediaVolumeChanged = { viewModel.setMediaVolume(it) }, onOpenSoundSettings = { viewModel.openSoundSettings() }, onOpenDisplaySettings = { viewModel.openDisplaySettings() })
         DarkBatteryInfoCard(batteryLevel = uiState.batteryLevel, isCharging = uiState.isCharging)
+        DarkScreenCaptureCard()
         DarkAutomationRulesCard()
     }
 }
@@ -124,5 +129,84 @@ fun DarkAutomationRulesCard() {
 fun DarkSceneButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
     Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = GradientStart.copy(alpha = 0.15f)), shape = RoundedCornerShape(12.dp)) {
         Column(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(icon, contentDescription = label, tint = GradientStart); Spacer(modifier = Modifier.height(4.dp)); Text(label, style = MaterialTheme.typography.bodySmall, color = TextPrimary) }
+    }
+}
+
+@Composable
+fun DarkScreenCaptureCard() {
+    val context = LocalContext.current
+    var hasPermission by remember { mutableStateOf(false) }
+    
+    LaunchedEffect(Unit) {
+        val screenCaptureManager = (context as? android.app.Activity)?.let {
+            try {
+                val field = it.javaClass.getDeclaredField("screenCaptureManager")
+                field.isAccessible = true
+                (field.get(it) as? ScreenCaptureManager)?.hasMediaProjection() ?: false
+            } catch (e: Exception) {
+                false
+            }
+        } ?: false
+        hasPermission = screenCaptureManager
+    }
+    
+    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(16.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = if (hasPermission) StatusOnline else GradientStart)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("屏幕录制权限", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(if (hasPermission) "已授权 - AI 可以分析屏幕内容" else "未授权 - 需要此权限才能使用 AI 视觉功能", style = MaterialTheme.typography.bodySmall, color = if (hasPermission) StatusOnline else TextSecondary)
+                }
+            }
+            
+            if (!hasPermission) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("授权后，AI 将能够：", style = MaterialTheme.typography.bodySmall, color = TextTertiary)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GradientStart, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("分析当前屏幕内容", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GradientStart, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("识别屏幕上的文字和元素", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GradientStart, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("理解界面布局和操作按钮", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        val activity = context as? android.app.Activity
+                        activity?.let {
+                            try {
+                                val field = it.javaClass.getDeclaredField("screenCaptureManager")
+                                field.isAccessible = true
+                                (field.get(it) as? ScreenCaptureManager)?.requestMediaProjectionPermission(it)
+                            } catch (e: Exception) {
+                                // Handle exception
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = GradientStart),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("授权屏幕录制")
+                }
+            }
+        }
     }
 }

@@ -18,7 +18,8 @@ import javax.inject.Singleton
 class LlamaEngine @Inject constructor(
     @ApplicationContext private val context: Context,
     private val modelRepository: ModelRepository,
-    private val llamaJNI: LlamaJNI
+    private val llamaJNI: LlamaJNI,
+    private val hardwareAccelerationManager: HardwareAccelerationManager
 ) {
     
     private var engineId: Long = 0
@@ -46,9 +47,15 @@ class LlamaEngine @Inject constructor(
         if (!engineInitialized) {
             try {
                 Logger.d(Logger.Tags.ENGINE, "ensureEngineInitialized: creating engine")
+                
+                val acceleratorInfo = hardwareAccelerationManager.getSelectedAcceleratorInfo()
+                Logger.i(Logger.Tags.ENGINE, "Using accelerator: ${acceleratorInfo.name}")
+                
                 engineId = LlamaJNI.createEngine()
                 engineInitialized = true
                 Logger.i(Logger.Tags.ENGINE, "ensureEngineInitialized: success, engineId=$engineId")
+                
+                hardwareAccelerationManager.applyAcceleration(this)
             } catch (e: Exception) {
                 Logger.e(Logger.Tags.ENGINE, "ensureEngineInitialized: createEngine failed", e)
                 _isModelLoaded.value = false

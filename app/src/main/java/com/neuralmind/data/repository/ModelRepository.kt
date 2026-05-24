@@ -104,7 +104,12 @@ class ModelRepository @Inject constructor(
                 createCodeModel("phi-3.5-mini", "Phi-3.5 Mini", "Microsoft 高性能小模型，代码和推理能力强", 2_560_000_000, 3,
                     "https://modelscope.cn/models/LLM-Research/Phi-3.5-mini-instruct-GGUF/resolve/master/Phi-3.5-mini-instruct-Q4_K_M.gguf", 2048, 3584, 4096),
                 createCodeModel("qwen2.5-coder-1.5b", "Qwen2.5-Coder 1.5B", "阿里代码专用模型，代码生成能力强", 1_060_000_000, 2,
-                    "https://modelscope.cn/models/qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/master/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf", 1024, 1536, 2048)
+                    "https://modelscope.cn/models/qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/master/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf", 1024, 1536, 2048),
+                
+                createVisionModel("minicpm-v2.5", "MiniCPM-V 2.5", "面壁智能开源多模态模型，中文OCR能力最强，支持图像理解和分析", 3_300_000_000, 8,
+                    "https://huggingface.co/openbmb/MiniCPM-Llama3-V-2_5-gguf/resolve/main/MiniCPM-Llama3-V-2_5-Q4_K_M.gguf",
+                    "https://huggingface.co/openbmb/MiniCPM-Llama3-V-2_5-gguf/resolve/main/mmproj-model-f16.gguf",
+                    2048, 3072, 4096)
             )
             
             defaultModels.forEach { modelDao.insert(it) }
@@ -134,7 +139,16 @@ class ModelRepository @Inject constructor(
     private fun createCodeModel(id: String, name: String, desc: String, size: Long, params: Int,
                                 url: String, minRam: Long, minStorage: Long, recommendedRam: Long) =
         createModel(id, name, desc, size, params, url, minRam, minStorage, recommendedRam, ModelCategory.CODE, nnapi = false)
-    
+
+    private fun createVisionModel(id: String, name: String, desc: String, size: Long, params: Int,
+                                  url: String, mmprojUrl: String, minRam: Long, minStorage: Long, recommendedRam: Long) =
+        ModelEntity(
+            id = id, name = name, description = desc, size = size, parameters = params,
+            quantization = "Q4_K_M", category = ModelCategory.VISION.name, downloadUrl = "$url|$mmprojUrl",
+            checksum = "", minRam = minRam, minStorage = minStorage, recommendedRam = recommendedRam,
+            supportsGpu = true, supportsNnapi = true
+        )
+
     suspend fun downloadModel(modelId: String) {
         Logger.d(Logger.Tags.REPO, "downloadModel(modelId=$modelId)")
         try {

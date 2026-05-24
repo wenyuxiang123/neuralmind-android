@@ -2,6 +2,7 @@ package com.neuralmind.di
 
 import android.content.Context
 import com.neuralmind.data.repository.*
+import com.neuralmind.llama.HardwareAccelerationManager
 import com.neuralmind.llama.LlamaEngine
 import com.neuralmind.llama.LlamaJNI
 import com.neuralmind.device.DeviceController
@@ -28,12 +29,19 @@ object AppModule {
     
     @Provides
     @Singleton
+    fun provideHardwareAccelerationManager(@ApplicationContext context: Context): HardwareAccelerationManager {
+        return HardwareAccelerationManager(context)
+    }
+    
+    @Provides
+    @Singleton
     fun provideLlamaEngine(
         @ApplicationContext context: Context,
         modelRepository: ModelRepository,
-        llamaJNI: LlamaJNI
+        llamaJNI: LlamaJNI,
+        hardwareAccelerationManager: HardwareAccelerationManager
     ): LlamaEngine {
-        return LlamaEngine(context, modelRepository, llamaJNI)
+        return LlamaEngine(context, modelRepository, llamaJNI, hardwareAccelerationManager)
     }
     
     @Provides

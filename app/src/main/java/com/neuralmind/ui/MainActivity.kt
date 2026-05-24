@@ -1,5 +1,6 @@
 package com.neuralmind.ui
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.neuralmind.device.ScreenCaptureManager
 import com.neuralmind.ui.components.DrawerContent
 import com.neuralmind.ui.navigation.AppNavigation
 import com.neuralmind.ui.navigation.Screen
@@ -27,9 +29,14 @@ import android.provider.Settings
 import com.neuralmind.service.NeuralMindAssistantService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    
+    @Inject
+    lateinit var screenCaptureManager: ScreenCaptureManager
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -39,15 +46,20 @@ class MainActivity : ComponentActivity() {
             }
         }
         
-        // Auto-start assistant service with floating ball
         startAssistantService()
     }
     
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (screenCaptureManager.onActivityResult(requestCode, resultCode, data)) {
+            // MediaProjection permission granted
+        }
+    }
+    
     private fun startAssistantService() {
-        // Check overlay permission first
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             // No overlay permission yet - user needs to grant it manually
-            // We still start the service, floating ball will show once permission is granted
         }
         NeuralMindAssistantService.start(this)
     }

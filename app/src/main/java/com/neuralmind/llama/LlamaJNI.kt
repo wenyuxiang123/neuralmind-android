@@ -76,6 +76,24 @@ class LlamaJNI {
 
         @JvmStatic
         external fun extractFingerprint(engineId: Long, text: String): FloatArray?
+
+        @JvmStatic
+        external fun setAccelerationMode(mode: Int)
+
+        @JvmStatic
+        external fun loadVisionModel(modelPath: String, mmprojPath: String): Boolean
+
+        @JvmStatic
+        external fun unloadVisionModel()
+
+        @JvmStatic
+        external fun analyzeImage(
+            imagePath: String,
+            prompt: String,
+            maxTokens: Int,
+            temperature: Float,
+            topP: Float
+        ): String
     }
 
     // Instance method - called by C++ JNI for streaming token callback

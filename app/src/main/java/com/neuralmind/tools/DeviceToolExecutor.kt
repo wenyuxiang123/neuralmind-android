@@ -23,7 +23,8 @@ data class DeviceToolResult(
 
 @Singleton
 class DeviceToolExecutor @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val visionToolExecutor: VisionToolExecutor
 ) {
     companion object {
         private val ACTION_REGEX = Regex("""\[ACTION:(\w+)\](.*?)\[/ACTION\]""")
@@ -36,7 +37,8 @@ class DeviceToolExecutor @Inject constructor(
             "go_home", "open_notifications", "open_quick_settings", 
             "open_recents", "swipe_up", "swipe_down", "swipe_left", 
             "swipe_right", "get_screen", "search_app", "click_at", 
-            "long_click", "open_url"
+            "long_click", "open_url", "analyze_screen", "describe_screen",
+            "recognize_text", "find_on_screen"
         )
         
         private val FORBIDDEN_PATTERNS = Regex(
@@ -222,6 +224,10 @@ class DeviceToolExecutor @Inject constructor(
             "get_screen" -> executeGetScreen(service)
             "search_app" -> executeSearchApp(service, call.params)
             "open_url" -> executeOpenUrl(call.params)
+            "analyze_screen" -> executeAnalyzeScreen(call.params)
+            "describe_screen" -> executeDescribeScreen()
+            "recognize_text" -> executeRecognizeText()
+            "find_on_screen" -> executeFindOnScreen(call.params)
             else -> {
                 Logger.w(TAG, "executeTool: Unknown tool name: ${call.name}")
                 DeviceToolResult(false, "未知工具: ${call.name}")
@@ -356,5 +362,39 @@ class DeviceToolExecutor @Inject constructor(
         WebViewActivity.openUrl(context, finalUrl)
         
         return DeviceToolResult(true, "已在内置浏览器中打开: $finalUrl")
+    }
+    
+    private fun executeAnalyzeScreen(params: String): DeviceToolResult {
+        Logger.i(TAG, "executeAnalyzeScreen: params='$params'")
+        
+        val task = if (params.isNotBlank()) params else "分析当前屏幕内容"
+        
+        val result = visionToolExecutor.analyzeScreen(task)
+        return DeviceToolResult(result.success, result.message, result.data)
+    }
+    
+    private fun executeDescribeScreen(): DeviceToolResult {
+        Logger.i(TAG, "executeDescribeScreen")
+        
+        val result = visionToolExecutor.analyzeCurrentScreen()
+        return DeviceToolResult(result.success, result.message, result.data)
+    }
+    
+    private fun executeRecognizeText(): DeviceToolResult {
+        Logger.i(TAG, "executeRecognizeText")
+        
+        val result = visionToolExecutor.recognizeScreenText()
+        return DeviceToolResult(result.success, result.message, result.data)
+    }
+    
+    private fun executeFindOnScreen(params: String): DeviceToolResult {
+        Logger.i(TAG, "executeFindOnScreen: params='$params'")
+        
+        if (params.isBlank()) {
+            return DeviceToolResult(false, "需要指定要查找的物体或元素名称")
+        }
+        
+        val result = visionToolExecutor.findOnScreen(params)
+        return DeviceToolResult(result.success, result.message, result.data)
     }
 }

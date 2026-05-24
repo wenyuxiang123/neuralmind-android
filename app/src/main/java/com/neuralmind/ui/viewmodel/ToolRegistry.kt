@@ -77,6 +77,30 @@ object ToolRegistry {
             keywords = listOf("截图", "屏幕", "当前界面", "查看", "screen")
         ),
         ToolInfo(
+            name = "analyze_screen",
+            description = "AI分析屏幕内容，参数：要分析的任务（如\"查找登录按钮\"、\"描述当前界面\"等）",
+            category = ToolCategory.MEDIUM,
+            keywords = listOf("分析屏幕", "AI看屏幕", "识别界面", "理解屏幕", "看看屏幕", "屏幕分析", "analyze", "vision")
+        ),
+        ToolInfo(
+            name = "describe_screen",
+            description = "AI详细描述当前屏幕内容（无参数）",
+            category = ToolCategory.MEDIUM,
+            keywords = listOf("描述屏幕", "这是什么", "这是什么界面", "描述界面", "describe")
+        ),
+        ToolInfo(
+            name = "recognize_text",
+            description = "AI识别屏幕上的所有文字（无参数）",
+            category = ToolCategory.MEDIUM,
+            keywords = listOf("识别文字", "OCR", "读取文字", "扫描文字", "recognize", "text")
+        ),
+        ToolInfo(
+            name = "find_on_screen",
+            description = "AI在屏幕上查找指定物体或元素，参数：物体名称",
+            category = ToolCategory.MEDIUM,
+            keywords = listOf("查找", "找找", "寻找", "find", "search")
+        ),
+        ToolInfo(
             name = "open_url",
             description = "打开网页URL，参数：网址或搜索关键词",
             category = ToolCategory.MEDIUM,
