@@ -2,6 +2,7 @@ package com.neuralmind.ui.screens.settings
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -12,24 +13,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuralmind.llama.HardwareAccelerationManager
-import com.neuralmind.llama.HardwareAccelerationManager.AccelerationType
 import com.neuralmind.llama.HardwareAccelerationManager.AccelerationInfo
-import dagger.hilt.android.EntryPointAccessors
+import com.neuralmind.ui.theme.*
+import com.neuralmind.ui.viewmodel.AccelerationViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccelerationSettingsScreen(
+    viewModel: AccelerationViewModel = hiltViewModel(),
     onBack: () -> Unit
 ) {
-    val context = LocalContext.current
-    val hiltEntryPoint = EntryPointAccessors.fromApplication(
-        context.applicationContext,
-        HardwareAccelerationManagerEntryPoint::class.java
-    )
-    val accelerationManager = hiltEntryPoint.hardwareAccelerationManager
-    
-    val accelerators by remember { mutableStateOf(accelerationManager.getAvailableAccelerators()) }
-    val selectedAccelerator by remember { mutableStateOf(accelerationManager.getSelectedAccelerator()) }
+    val uiState by viewModel.uiState.collectAsState()
     
     Scaffold(
         topBar = {
@@ -52,7 +48,7 @@ fun AccelerationSettingsScreen(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp)
@@ -75,7 +71,7 @@ fun AccelerationSettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = accelerationManager.getSelectedAcceleratorInfo().name,
+                                    text = uiState.selectedAccelerator.name,
                                     style = MaterialTheme.typography.headlineSmall,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -95,18 +91,13 @@ fun AccelerationSettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
             
-            items(accelerators.size) { index ->
-                val accelerator = accelerators[index]
+            items(uiState.accelerators) { accelerator ->
                 AccelerationCard(
                     accelerator = accelerator,
-                    isSelected = accelerator.type == selectedAccelerator,
-                    onSelect = {
-                        accelerationManager.selectAccelerator(accelerator.type)
-                    }
+                    isSelected = accelerator.type == uiState.selectedAccelerator,
+                    onSelect = { viewModel.selectAccelerator(accelerator.type) }
                 )
-                if (index < accelerators.size - 1) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
+                Spacer(modifier = Modifier.height(8.dp))
             }
             
             item {
@@ -164,9 +155,6 @@ fun AccelerationCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = if (isSelected) 8.dp else 2.dp
-        ),
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) {
                 MaterialTheme.colorScheme.primaryContainer
@@ -181,14 +169,7 @@ fun AccelerationCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = when (accelerator.type) {
-                    AccelerationType.CPU -> Icons.Default.Memory
-                    AccelerationType.GPU_OPENCL -> Icons.Default.GraphicEq
-                    AccelerationType.GPU_VULKAN -> Icons.Default.Layers
-                    AccelerationType.NPU_HEXAGON -> Icons.Default.Memory
-                    AccelerationType.NPU_NNAPI -> Icons.Default.Devices
-                    AccelerationType.AUTO -> Icons.Default.AutoAwesome
-                },
+                imageVector = Icons.Default.Memory,
                 contentDescription = accelerator.name,
                 modifier = Modifier.size(40.dp),
                 tint = if (isSelected) {
@@ -246,10 +227,4 @@ fun AccelerationSettingsScreenPreview() {
     MaterialTheme {
         AccelerationSettingsScreen(onBack = {})
     }
-}
-
-@dagger.hilt.EntryPoint
-@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
-interface HardwareAccelerationManagerEntryPoint {
-    fun hardwareAccelerationManager(): HardwareAccelerationManager
 }

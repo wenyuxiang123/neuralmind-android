@@ -1,11 +1,11 @@
 package com.neuralmind.tools
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.view.accessibility.AccessibilityNodeInfo
 import com.neuralmind.service.NeuralMindAccessibilityService
 import com.neuralmind.core.Logger
-import com.neuralmind.ui.WebViewActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -359,9 +359,12 @@ class DeviceToolExecutor @Inject constructor(
         }
         
         Logger.i(TAG, "executeOpenUrl: opening $finalUrl")
-        WebViewActivity.openUrl(context, finalUrl)
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(finalUrl)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
         
-        return DeviceToolResult(true, "已在内置浏览器中打开: $finalUrl")
+        return DeviceToolResult(true, "已打开: $finalUrl")
     }
     
     private fun executeAnalyzeScreen(params: String): DeviceToolResult {
