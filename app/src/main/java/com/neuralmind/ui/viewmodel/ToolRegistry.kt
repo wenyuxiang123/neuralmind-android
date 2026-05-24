@@ -75,6 +75,12 @@ object ToolRegistry {
             description = "获取屏幕内容（无参数）",
             category = ToolCategory.MEDIUM,
             keywords = listOf("截图", "屏幕", "当前界面", "查看", "screen")
+        ),
+        ToolInfo(
+            name = "open_url",
+            description = "打开网页URL，参数：网址或搜索关键词",
+            category = ToolCategory.MEDIUM,
+            keywords = listOf("浏览器", "网页", "搜索", "打开网址", "浏览", "google", "百度", "网址", "url", "网站", "搜索内容", "search", "web")
         )
     )
     

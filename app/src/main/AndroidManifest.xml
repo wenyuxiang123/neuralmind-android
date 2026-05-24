@@ -61,6 +61,14 @@
             </intent-filter>
         </activity>
 
+        <!-- 内置浏览器 -->
+        <activity
+            android:name=".ui.WebViewActivity"
+            android:exported="false"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- WorkManager Initialization -->
         <provider
             android:name="androidx.startup.InitializationProvider"

@@ -1,9 +1,11 @@
 package com.neuralmind.tools
 
 import android.content.Context
+import android.net.Uri
 import android.view.accessibility.AccessibilityNodeInfo
 import com.neuralmind.service.NeuralMindAccessibilityService
 import com.neuralmind.core.Logger
+import com.neuralmind.ui.WebViewActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,7 +36,7 @@ class DeviceToolExecutor @Inject constructor(
             "go_home", "open_notifications", "open_quick_settings", 
             "open_recents", "swipe_up", "swipe_down", "swipe_left", 
             "swipe_right", "get_screen", "search_app", "click_at", 
-            "long_click"
+            "long_click", "open_url"
         )
         
         private val FORBIDDEN_PATTERNS = Regex(
@@ -219,6 +221,7 @@ class DeviceToolExecutor @Inject constructor(
             }
             "get_screen" -> executeGetScreen(service)
             "search_app" -> executeSearchApp(service, call.params)
+            "open_url" -> executeOpenUrl(call.params)
             else -> {
                 Logger.w(TAG, "executeTool: Unknown tool name: ${call.name}")
                 DeviceToolResult(false, "未知工具: ${call.name}")
@@ -326,5 +329,32 @@ class DeviceToolExecutor @Inject constructor(
             val y = parts[1].trim().toIntOrNull()
             if (x != null && y != null) x to y else null
         } else null
+    }
+    
+    private fun executeOpenUrl(url: String): DeviceToolResult {
+        Logger.d(TAG, "executeOpenUrl: url='$url'")
+        
+        // 验证 URL
+        if (url.isBlank()) {
+            Logger.w(TAG, "executeOpenUrl: empty URL")
+            return DeviceToolResult(false, "URL 不能为空")
+        }
+        
+        // 检查是否是搜索词
+        val finalUrl = if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            if (url.contains(".") && !url.contains(" ")) {
+                "https://$url"
+            } else {
+                // 搜索词使用 Google
+                "https://www.google.com/search?q=${Uri.encode(url)}"
+            }
+        } else {
+            url
+        }
+        
+        Logger.i(TAG, "executeOpenUrl: opening $finalUrl")
+        WebViewActivity.openUrl(context, finalUrl)
+        
+        return DeviceToolResult(true, "已在内置浏览器中打开: $finalUrl")
     }
 }
