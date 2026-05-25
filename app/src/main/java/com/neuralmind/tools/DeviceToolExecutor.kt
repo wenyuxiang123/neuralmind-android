@@ -351,8 +351,8 @@ class DeviceToolExecutor @Inject constructor(
             if (url.contains(".") && !url.contains(" ")) {
                 "https://$url"
             } else {
-                // 搜索词使用 Google
-                "https://www.google.com/search?q=${Uri.encode(url)}"
+                // 使用百度移动端搜索（广告较少）
+                "https://m.baidu.com/s?word=${Uri.encode(url)}"
             }
         } else {
             url
