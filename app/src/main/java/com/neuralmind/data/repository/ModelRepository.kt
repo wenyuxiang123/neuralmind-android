@@ -107,8 +107,8 @@ class ModelRepository @Inject constructor(
                     "https://modelscope.cn/models/qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/master/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf", 1024, 1536, 2048),
                 
                 createVisionModel("minicpm-v2.5", "MiniCPM-V 2.5", "面壁智能开源多模态模型，中文OCR能力最强，支持图像理解和分析", 3_300_000_000, 8,
-                    "https://huggingface.co/openbmb/MiniCPM-Llama3-V-2_5-gguf/resolve/main/MiniCPM-Llama3-V-2_5-Q4_K_M.gguf",
-                    "https://huggingface.co/openbmb/MiniCPM-Llama3-V-2_5-gguf/resolve/main/mmproj-model-f16.gguf",
+                    "https://hf-mirror.com/openbmb/MiniCPM-Llama3-V-2_5-gguf/resolve/main/MiniCPM-Llama3-V-2_5-Q4_K_M.gguf",
+                    "https://hf-mirror.com/openbmb/MiniCPM-Llama3-V-2_5-gguf/resolve/main/mmproj-model-f16.gguf",
                     2048, 3072, 4096)
             )
             

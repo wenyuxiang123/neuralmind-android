@@ -20,7 +20,7 @@ class NetworkManager @Inject constructor() {
         .writeTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)                  // 跟随 HTTP 重定向
         .followSslRedirects(true)              // 跟随 HTTPS 重定向（镜像站可能跳转）
-        .connectionPool(okhttp3.ConnectionPool(5, 5, TimeUnit.MINUTES))
+        .connectionPool(okhttp3.ConnectionPool(10, 5, TimeUnit.MINUTES))  // 增加连接池大小
         .cache(null)                            // 大文件不需要缓存
         .build()
     
@@ -100,9 +100,10 @@ class NetworkManager @Inject constructor() {
         val append = downloadedBytes > 0 && response.code == 206
         
         targetFile.parentFile?.mkdirs()
-        java.io.BufferedOutputStream(java.io.FileOutputStream(targetFile, append), 262144).use { output ->
+        // 使用更大的缓冲区（1MB）提升下载性能
+        java.io.BufferedOutputStream(java.io.FileOutputStream(targetFile, append), 1048576).use { output ->
             body.byteStream().use { input ->
-                val buffer = ByteArray(65536)  // 64KB buffer for better I/O performance
+                val buffer = ByteArray(262144)  // 256KB buffer for better I/O performance
                 var bytesRead: Int
                 var lastMilestone = 0L
                 var lastCallbackBytes = 0L
