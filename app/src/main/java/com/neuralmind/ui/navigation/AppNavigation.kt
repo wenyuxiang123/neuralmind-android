@@ -13,6 +13,7 @@ import com.neuralmind.ui.screens.memory.MemoryScreen
 import com.neuralmind.ui.screens.skills.SkillsScreen
 import com.neuralmind.ui.screens.device.DeviceControlScreen
 import com.neuralmind.ui.screens.toolkit.ToolkitStoreScreen
+import com.neuralmind.ui.screens.settings.AccelerationSettingsScreen
 
 sealed class Screen(val route: String) {
     object ChatList : Screen("chat_list")
@@ -24,6 +25,7 @@ sealed class Screen(val route: String) {
     object Skills : Screen("skills")
     object DeviceControl : Screen("device_control")
     object ToolkitStore : Screen("toolkit_store")
+    object AccelerationSettings : Screen("acceleration_settings")
 }
 
 @Composable
@@ -81,6 +83,12 @@ fun AppNavigation(navController: NavHostController) {
         composable(Screen.ToolkitStore.route) {
             ToolkitStoreScreen(
                 onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.AccelerationSettings.route) {
+            AccelerationSettingsScreen(
+                onBack = { navController.popBackStack() }
             )
         }
     }

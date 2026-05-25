@@ -38,7 +38,8 @@ fun DrawerContent(
         DrawerMenuItem(title = "模型库", icon = Icons.Default.Inventory2, route = "model_library", isSelected = currentRoute == "model_library"),
         DrawerMenuItem(title = "技能库", icon = Icons.Default.Bolt, route = "skills", isSelected = currentRoute == "skills"),
         DrawerMenuItem(title = "记忆测试", icon = Icons.Default.Psychology, route = "memory", isSelected = currentRoute == "memory"),
-        DrawerMenuItem(title = "推理引擎", icon = Icons.Default.Settings, route = "device_control", isSelected = currentRoute == "device_control")
+        DrawerMenuItem(title = "推理引擎", icon = Icons.Default.Settings, route = "device_control", isSelected = currentRoute == "device_control"),
+        DrawerMenuItem(title = "硬件加速", icon = Icons.Default.Memory, route = "acceleration_settings", isSelected = currentRoute == "acceleration_settings")
     )
 
     Column(
